@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>星穹卡池模拟终端 · Astral Gacha Simulator</title>
+  <style>
+    :root {
+      --bg-dark: #0a0c14;
+      --bg-card: #121524;
+      --bg-card-hover: #191e33;
+      --neon-cyan: #00f3ff;
+      --neon-violet: #bc13fe;
+      --neon-gold: #ffd700;
+      --neon-pink: #ff2a85;
+      --text-main: #e2e8f0;
+      --text-muted: #94a3b8;
+      --border-cyan: rgba(0, 243, 255, 0.25);
+      --border-gold: rgba(255, 215, 0, 0.4);
+      --border-violet: rgba(188, 19, 254, 0.4);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      background-image: 
+        radial-gradient(circle at 15% 20%, rgba(188, 19, 254, 0.12) 0%, transparent 40%),
+        radial-gradient(circle at 85% 80%, rgba(0, 243, 255, 0.1) 0%, transparent 40%);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Navbar */
+    header {
+      background: rgba(18, 21, 36, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-cyan);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .brand-logo {
+      font-size: 1.6rem;
+      filter: drop-shadow(0 0 8px var(--neon-cyan));
+    }
+
+    .brand-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      background: linear-gradient(135deg, #fff 0%, var(--neon-cyan) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .sse-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.85rem;
+      border-radius: 9999px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(0, 243, 255, 0.3);
+      color: var(--neon-cyan);
+      box-shadow: 0 0 10px rgba(0, 243, 255, 0.15);
+      transition: all 0.3s;
+    }
+
+    .sse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 6px #10b981;
+      animation: pulse 2s infinite;
+    }
+
+    .sse-dot.offline {
+      background: #ef4444;
+      box-shadow: 0 0 6px #ef4444;
+      animation: none;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.3); opacity: 0.7; }
+    }
+
+    .user-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      padding: 0.35rem 0.85rem;
+      background: rgba(188, 19, 254, 0.15);
+      border: 1px solid var(--border-violet);
+      border-radius: 8px;
+      color: #e2e8f0;
+    }
+
+    /* Container */
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+      flex: 1;
+      width: 100%;
+    }
+
+    /* Grid Layout */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 960px) {
+      .dashboard-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Card styling */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 1.5rem;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
+    }
+
+    /* Banner Section */
+    .banner-hero {
+      background: linear-gradient(135deg, rgba(18, 21, 36, 0.95), rgba(26, 17, 48, 0.85)),
+                  radial-gradient(ellipse at 80% 20%, rgba(188, 19, 254, 0.25), transparent 60%);
+      border: 1px solid var(--border-violet);
+      padding: 2rem;
+      border-radius: 16px;
+      margin-bottom: 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1.5rem;
+    }
+
+    .banner-info {
+      max-width: 600px;
+    }
+
+    .banner-badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      background: rgba(255, 215, 0, 0.15);
+      border: 1px solid var(--border-gold);
+      color: var(--neon-gold);
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: bold;
+      margin-bottom: 0.75rem;
+    }
+
+    .banner-title {
+      font-size: 2rem;
+      font-weight: 800;
+      margin-bottom: 0.5rem;
+      background: linear-gradient(135deg, #fff 0%, var(--neon-gold) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .banner-desc {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+
+    .rates-bar {
+      display: flex;
+      gap: 1.5rem;
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      font-size: 0.85rem;
+    }
+
+    .rate-item span.val {
+      font-weight: bold;
+      color: var(--neon-cyan);
+    }
+
+    .rate-item.gold span.val {
+      color: var(--neon-gold);
+    }
+
+    /* Summon Actions */
+    .summon-controls {
+      display: flex;
+      gap: 1.25rem;
+      justify-content: center;
+      margin: 1.5rem 0;
+    }
+
+    .btn-summon {
+      background: linear-gradient(135deg, #1e293b, #0f172a);
+      border: 1px solid var(--neon-cyan);
+      color: #fff;
+      padding: 1rem 2.25rem;
+      border-radius: 12px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      transition: all 0.25s ease;
+      box-shadow: 0 0 15px rgba(0, 243, 255, 0.2);
+    }
+
+    .btn-summon:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 25px rgba(0, 243, 255, 0.5);
+      border-color: #fff;
+    }
+
+    .btn-summon:active {
+      transform: translateY(1px);
+    }
+
+    .btn-summon.tenx {
+      border-color: var(--neon-gold);
+      box-shadow: 0 0 18px rgba(255, 215, 0, 0.3);
+      background: linear-gradient(135deg, #2a2012, #181308);
+    }
+
+    .btn-summon.tenx:hover {
+      box-shadow: 0 0 30px rgba(255, 215, 0, 0.6);
+    }
+
+    /* Reveal Area */
+    .reveal-area {
+      min-height: 220px;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px dashed rgba(255, 255, 255, 0.15);
+      border-radius: 14px;
+      padding: 1.5rem;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 1rem;
+      align-content: center;
+      transition: all 0.3s;
+    }
+
+    .card-item {
+      background: #181d30;
+      border-radius: 10px;
+      padding: 1rem 0.75rem;
+      text-align: center;
+      position: relative;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      animation: cardPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    @keyframes cardPop {
+      0% { opacity: 0; transform: scale(0.6) rotate(-5deg); }
+      100% { opacity: 1; transform: scale(1) rotate(0deg); }
+    }
+
+    .card-item.rarity-S {
+      border: 2px solid var(--neon-gold);
+      background: linear-gradient(180deg, rgba(255, 215, 0, 0.15), rgba(30, 24, 10, 0.9));
+      box-shadow: 0 0 20px rgba(255, 215, 0, 0.45);
+    }
+
+    .card-item.rarity-A {
+      border: 1.5px solid var(--neon-violet);
+      background: linear-gradient(180deg, rgba(188, 19, 254, 0.15), rgba(25, 14, 38, 0.9));
+      box-shadow: 0 0 14px rgba(188, 19, 254, 0.35);
+    }
+
+    .card-item.rarity-B {
+      border: 1px solid rgba(0, 243, 255, 0.5);
+      background: rgba(15, 23, 42, 0.8);
+    }
+
+    .card-badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 800;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      margin-bottom: 0.5rem;
+    }
+
+    .rarity-S .card-badge { background: var(--neon-gold); color: #000; }
+    .rarity-A .card-badge { background: var(--neon-violet); color: #fff; }
+    .rarity-B .card-badge { background: #38bdf8; color: #000; }
+
+    .card-name {
+      font-size: 0.95rem;
+      font-weight: 700;
+      margin: 0.35rem 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .card-meta {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    /* Tabs & Content */
+    .tabs-nav {
+      display: flex;
+      gap: 0.5rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      margin-top: 2rem;
+      margin-bottom: 1.25rem;
+      overflow-x: auto;
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 0.65rem 1.25rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      position: relative;
+      transition: color 0.2s;
+      white-space: nowrap;
+    }
+
+    .tab-btn.active {
+      color: var(--neon-cyan);
+    }
+
+    .tab-btn.active::after {
+      content: "";
+      position: absolute;
+      bottom: -1px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: var(--neon-cyan);
+      box-shadow: 0 0 8px var(--neon-cyan);
+    }
+
+    .tab-panel {
+      display: none;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
+    /* Stats & Inventory tables */
+    .table-responsive {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    th, td {
+      padding: 0.75rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    th {
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .tag-up-won {
+      color: #10b981;
+      font-weight: bold;
+    }
+
+    .tag-up-lost {
+      color: var(--neon-pink);
+      font-weight: bold;
+    }
+
+    /* Auth & Admin Cards */
+    .input-group {
+      margin-bottom: 1rem;
+    }
+
+    .input-group label {
+      display: block;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 0.4rem;
+    }
+
+    .input-control {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 8px;
+      padding: 0.65rem 0.85rem;
+      color: #fff;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border 0.2s;
+    }
+
+    .input-control:focus {
+      border-color: var(--neon-cyan);
+      box-shadow: 0 0 8px rgba(0, 243, 255, 0.25);
+    }
+
+    .btn-action {
+      width: 100%;
+      padding: 0.75rem;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: linear-gradient(135deg, var(--neon-cyan), #0284c7);
+      color: #000;
+      margin-top: 0.5rem;
+    }
+
+    .btn-action:hover {
+      filter: brightness(1.15);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      margin-top: 0.5rem;
+    }
+
+    .btn-github {
+      background: #24292e;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    /* Toast Container */
+    #toast-container {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      max-width: 380px;
+    }
+
+    .toast {
+      background: rgba(18, 21, 36, 0.95);
+      border: 1px solid var(--neon-cyan);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), 0 0 12px rgba(0, 243, 255, 0.3);
+      padding: 1rem 1.25rem;
+      border-radius: 10px;
+      backdrop-filter: blur(10px);
+      animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    .toast-title {
+      font-weight: 700;
+      font-size: 0.9rem;
+      color: var(--neon-cyan);
+      margin-bottom: 0.25rem;
+    }
+
+    .toast-body {
+      font-size: 0.85rem;
+      color: #cbd5e1;
+    }
+
+    .toast.pool {
+      border-color: var(--neon-gold);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), 0 0 12px rgba(255, 215, 0, 0.3);
+    }
+    .toast.pool .toast-title { color: var(--neon-gold); }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="brand-logo">🌌</div>
+      <div>
+        <div class="brand-title">星穹卡池模拟终端</div>
+        <div style="font-size: 0.72rem; color: var(--text-muted); letter-spacing: 0.05em;">ASTRAL GACHA SIMULATOR</div>
+      </div>
+    </div>
+    <div class="nav-actions">
+      <div class="sse-pill" id="sse-status">
+        <span class="sse-dot" id="sse-dot"></span>
+        <span id="sse-label">实时通知连接中...</span>
+      </div>
+      <div class="user-pill" id="user-display">
+        <span>👤 游客 (未登录)</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="container">
+    <div class="banner-hero">
+      <div class="banner-info">
+        <span class="banner-badge" id="up-badge">✦ 限时概率 UP ✦</span>
+        <h1 class="banner-title" id="up-name">星渊猎手 · 卡莲</h1>
+        <p class="banner-desc">穿梭于群星裂隙之间的传奇猎手，拥有斩断引力乱流的终极之刃。当期获取概率大幅提升！</p>
+        <div class="rates-bar">
+          <div class="rate-item gold">S级出率: <span class="val" id="rate-s">0.80%</span></div>
+          <div class="rate-item">A级出率: <span class="val" id="rate-a">8.00%</span></div>
+          <div class="rate-item">保底规则: <span class="val" id="pity-rule">80 抽必得 S</span></div>
+        </div>
+      </div>
+      <div class="banner-pity-card" style="background: rgba(0,0,0,0.4); padding: 1.25rem 1.75rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); min-width: 220px;">
+        <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">当前保底累积计数</div>
+        <div style="font-size: 1.8rem; font-weight: 800; color: var(--neon-gold);" id="pity-s-counter">0 <span style="font-size: 0.9rem; color: var(--text-muted);">/ 80 抽</span></div>
+        <div style="font-size: 0.82rem; color: var(--neon-cyan); margin-top: 0.5rem;" id="pity-a-counter">A级保底: 0 / 10</div>
+      </div>
+    </div>
+
+    <div class="dashboard-grid">
+      <!-- Main Gacha Play Area -->
+      <main>
+        <div class="card">
+          <div class="summon-controls">
+            <button class="btn-summon" onclick="performDraw(1)">
+              <span>✦</span> 单抽召唤 × 1
+            </button>
+            <button class="btn-summon tenx" onclick="performDraw(10)">
+              <span>★</span> 十连祈愿 × 10
+            </button>
+          </div>
+
+          <div class="reveal-area" id="reveal-box">
+            <div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 2rem;">
+              点击上方召唤按钮，开启星轨共鸣抽取角色
+            </div>
+          </div>
+        </div>
+
+        <!-- Tabbed Modules -->
+        <div class="tabs-nav">
+          <button class="tab-btn active" onclick="switchTab('inventory')">🎒 我的仓库</button>
+          <button class="tab-btn" onclick="switchTab('stats')">📊 欧皇/非酋分析</button>
+          <button class="tab-btn" onclick="switchTab('history')">📜 历史记录</button>
+          <button class="tab-btn" onclick="switchTab('admin')">⚙️ 管理员卡池配置 (gRPC / SSE)</button>
+        </div>
+
+        <!-- Inventory Tab -->
+        <div class="tab-panel active" id="tab-inventory">
+          <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+              <h3>角色收藏图鉴 (<span id="inv-count">0</span>)</h3>
+              <button class="btn-action btn-secondary" style="width: auto; padding: 0.35rem 0.85rem;" onclick="loadInventory()">刷新</button>
+            </div>
+            <div class="reveal-area" id="inv-grid" style="border: none; padding: 0; min-height: 100px;">
+              <div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted);">暂无角色，请先登录并抽卡</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stats Tab -->
+        <div class="tab-panel" id="tab-stats">
+          <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+              <h3>S级战报统计 (<span id="stats-count">0</span> 次)</h3>
+              <button class="btn-action btn-secondary" style="width: auto; padding: 0.35rem 0.85rem;" onclick="loadStats()">刷新战报</button>
+            </div>
+            <div class="table-responsive">
+              <table>
+                <thead>
+                  <tr>
+                    <th>S级角色</th>
+                    <th>抽数成本</th>
+                    <th>UP 判定</th>
+                    <th>抽取时间</th>
+                  </tr>
+                </thead>
+                <tbody id="stats-table-body">
+                  <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">暂无 S 级出货记录</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- History Tab -->
+        <div class="tab-panel" id="tab-history">
+          <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+              <h3>最近抽卡明细</h3>
+              <button class="btn-action btn-secondary" style="width: auto; padding: 0.35rem 0.85rem;" onclick="loadHistory()">刷新明细</button>
+            </div>
+            <div class="table-responsive">
+              <table>
+                <thead>
+                  <tr>
+                    <th>角色名称</th>
+                    <th>品质</th>
+                    <th>第几抽触发</th>
+                    <th>首次获得</th>
+                    <th>时间</th>
+                  </tr>
+                </thead>
+                <tbody id="history-table-body">
+                  <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">暂无抽卡记录</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Admin Tab -->
+        <div class="tab-panel" id="tab-admin">
+          <div class="card">
+            <h3 style="margin-bottom: 0.75rem; color: var(--neon-gold);">卡池全局配置调控中心 (支持 gRPC 热同步 & SSE 全站广播)</h3>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+              修改卡池概率与保底阈值后，后台将通过原子指针无锁更新配置，并借助 gRPC 双向流实时推送到所有分布式服，同时触发客户端 SSE 动态通告！
+            </p>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+              <div class="input-group">
+                <label>S级基础概率 (如 0.008 代表 0.8%)</label>
+                <input class="input-control" type="number" step="0.001" id="cfg-rate-s" value="0.008">
+              </div>
+              <div class="input-group">
+                <label>A级基础概率 (如 0.080 代表 8.0%)</label>
+                <input class="input-control" type="number" step="0.001" id="cfg-rate-a" value="0.080">
+              </div>
+              <div class="input-group">
+                <label>S级硬保底抽数 (如 80)</label>
+                <input class="input-control" type="number" id="cfg-hard-s" value="80">
+              </div>
+              <div class="input-group">
+                <label>S级软保底起始抽数 (如 65)</label>
+                <input class="input-control" type="number" id="cfg-soft-start" value="65">
+              </div>
+              <div class="input-group">
+                <label>软保底每抽递增概率 (如 0.050)</label>
+                <input class="input-control" type="number" step="0.01" id="cfg-soft-inc" value="0.050">
+              </div>
+              <div class="input-group">
+                <label>最多同池限定S角色数 (如 3)</label>
+                <input class="input-control" type="number" id="cfg-max-limited" value="3">
+              </div>
+            </div>
+            <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+              <button class="btn-action" style="background: linear-gradient(135deg, var(--neon-gold), #b45309);" onclick="updatePoolConfig()">
+                ⚡ 一键提交配置并触发 gRPC & SSE 广播
+              </button>
+              <button class="btn-action btn-secondary" style="width: auto;" onclick="loadPresets()">
+                📦 载入预设角色库
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- Sidebar: Auth & Profile Panel -->
+      <aside>
+        <div class="card" id="auth-box">
+          <h3 style="margin-bottom: 1rem;">终端认证 / 用户登录</h3>
+          
+          <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+            <button class="tab-btn active" style="padding: 0.4rem 0.6rem; font-size: 0.82rem;" id="auth-tab-pass" onclick="switchAuthTab('pass')">账号密码</button>
+            <button class="tab-btn" style="padding: 0.4rem 0.6rem; font-size: 0.82rem;" id="auth-tab-email" onclick="switchAuthTab('email')">邮箱验证</button>
+          </div>
+
+          <!-- Password Form -->
+          <div id="auth-form-pass">
+            <div class="input-group">
+              <label>用户名 / 用户ID</label>
+              <input class="input-control" id="login-username" placeholder="请输入用户名" value="admin">
+            </div>
+            <div class="input-group">
+              <label>密码</label>
+              <input class="input-control" type="password" id="login-password" placeholder="请输入密码" value="admin123">
+            </div>
+            <button class="btn-action" onclick="handlePasswordLogin()">登录</button>
+            <button class="btn-action btn-secondary" onclick="handleRegister()">注册新账号</button>
+          </div>
+
+          <!-- Email Form -->
+          <div id="auth-form-email" style="display: none;">
+            <div class="input-group">
+              <label>电子邮箱</label>
+              <div style="display: flex; gap: 0.5rem;">
+                <input class="input-control" id="email-input" placeholder="user@example.com">
+                <button class="btn-action btn-secondary" style="width: auto; white-space: nowrap; margin-top: 0;" id="btn-send-code" onclick="sendEmailCode()">发送验证码</button>
+              </div>
+            </div>
+            <div class="input-group">
+              <label>6位验证码</label>
+              <input class="input-control" id="email-code" placeholder="123456">
+            </div>
+            <button class="btn-action" onclick="handleEmailLogin()">邮箱一键登录</button>
+          </div>
+
+          <div style="margin: 1.25rem 0; text-align: center; font-size: 0.8rem; color: var(--text-muted); position: relative;">
+            <span style="background: var(--bg-card); padding: 0 0.5rem; position: relative; z-index: 1;">第三方授权通道</span>
+            <div style="position: absolute; top: 50%; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.1);"></div>
+          </div>
+
+          <a href="/api/auth/github/login" class="btn-action btn-github" style="text-decoration: none;">
+            <svg height="18" width="18" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+            GitHub OAuth 快速登录
+          </a>
+        </div>
+
+        <!-- Logged in card -->
+        <div class="card" id="profile-box" style="display: none; margin-top: 1rem;">
+          <h3 style="margin-bottom: 0.5rem; color: var(--neon-cyan);">当前指挥官</h3>
+          <div style="font-size: 0.9rem; line-height: 1.8; color: #cbd5e1;">
+            <div>昵称: <strong id="prof-nickname">---</strong></div>
+            <div>身份: <span id="prof-role" style="color: var(--neon-gold); font-weight: bold;">---</span></div>
+            <div>UID: <span id="prof-uid" style="font-size: 0.8rem; color: var(--text-muted);">---</span></div>
+          </div>
+          <button class="btn-action btn-secondary" style="margin-top: 1rem;" onclick="handleLogout()">安全登出</button>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script>
+    let authToken = localStorage.getItem("gacha_token") || "";
+    let currentUser = null;
+
+    // Toast helper
+    function showToast(title, message, isPool = false) {
+      const container = document.getElementById("toast-container");
+      const toast = document.createElement("div");
+      toast.className = `toast ${isPool ? "pool" : ""}`;
+      toast.innerHTML = `
+        <div class="toast-title">${title}</div>
+        <div class="toast-body">${message}</div>
+      `;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = "0";
+        toast.style.transform = "translateX(100%)";
+        toast.style.transition = "all 0.4s";
+        setTimeout(() => toast.remove(), 400);
+      }, 4000);
+    }
+
+    // SSE Connection
+    function initSSE() {
+      const statusPill = document.getElementById("sse-status");
+      const dot = document.getElementById("sse-dot");
+      const label = document.getElementById("sse-label");
+
+      try {
+        const es = new EventSource("/api/notifications");
+        es.onopen = () => {
+          dot.className = "sse-dot";
+          label.textContent = "🟢 实时通知已连接";
+        };
+
+        es.onerror = () => {
+          dot.className = "sse-dot offline";
+          label.textContent = "🔴 通知连接中断";
+        };
+
+        es.addEventListener("CONNECTED", (e) => {
+          console.log("[SSE] Connected:", e.data);
+        });
+
+        es.addEventListener("POOL_UPDATE", (e) => {
+          let text = e.data;
+          try {
+            const parsed = JSON.parse(e.data);
+            if (parsed && parsed.data) text = parsed.data;
+          } catch (_) {}
+          showToast("🌌 卡池角色变动", text, true);
+          loadPoolInfo();
+        });
+
+        es.addEventListener("PROB_UPDATE", (e) => {
+          let text = e.data;
+          try {
+            const parsed = JSON.parse(e.data);
+            if (parsed && parsed.data) text = parsed.data;
+          } catch (_) {}
+          showToast("⚡ 概率参数热重载", text, false);
+          loadPoolInfo();
+        });
+      } catch (err) {
+        console.error("Failed to connect SSE:", err);
+      }
+    }
+
+    // Tab switching
+    function switchTab(tabId) {
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+      
+      const btn = Array.from(document.querySelectorAll(".tab-btn")).find(b => b.getAttribute("onclick")?.includes(tabId));
+      if (btn) btn.classList.add("active");
+      
+      const panel = document.getElementById(`tab-${tabId}`);
+      if (panel) panel.classList.add("active");
+
+      if (tabId === "inventory") loadInventory();
+      if (tabId === "stats") loadStats();
+      if (tabId === "history") loadHistory();
+    }
+
+    function switchAuthTab(type) {
+      if (type === "pass") {
+        document.getElementById("auth-tab-pass").classList.add("active");
+        document.getElementById("auth-tab-email").classList.remove("active");
+        document.getElementById("auth-form-pass").style.display = "block";
+        document.getElementById("auth-form-email").style.display = "none";
+      } else {
+        document.getElementById("auth-tab-email").classList.add("active");
+        document.getElementById("auth-tab-pass").classList.remove("active");
+        document.getElementById("auth-form-email").style.display = "block";
+        document.getElementById("auth-form-pass").style.display = "none";
+      }
+    }
+
+    // API Helpers
+    async function apiRequest(path, method = "GET", body = null) {
+      const headers = { "Content-Type": "application/json" };
+      if (authToken) headers["Authorization"] = "Bearer " + authToken;
+      const opts = { method, headers };
+      if (body) opts.body = JSON.stringify(body);
+      const res = await fetch(path, opts);
+      const data = await res.json().catch(() => ({}));
+      return { status: res.status, data };
+    }
+
+    // Load pool info
+    async function loadPoolInfo() {
+      const { status, data } = await apiRequest("/api/pool/info");
+      if (status === 200 && data.config) {
+        document.getElementById("rate-s").textContent = (data.config.base_rate_s * 100).toFixed(2) + "%";
+        document.getElementById("rate-a").textContent = (data.config.base_rate_a * 100).toFixed(2) + "%";
+        document.getElementById("pity-rule").textContent = `${data.config.hard_pity_s} 抽必得 S`;
+
+        document.getElementById("cfg-rate-s").value = data.config.base_rate_s;
+        document.getElementById("cfg-rate-a").value = data.config.base_rate_a;
+        document.getElementById("cfg-hard-s").value = data.config.hard_pity_s;
+        document.getElementById("cfg-soft-start").value = data.config.soft_pity_start;
+        document.getElementById("cfg-soft-inc").value = data.config.soft_pity_inc;
+        document.getElementById("cfg-max-limited").value = data.config.max_limited_s;
+
+        if (data.banner && data.banner.up_character) {
+          document.getElementById("up-name").textContent = data.banner.up_character.name;
+        }
+      }
+    }
+
+    // Auth actions
+    async function handlePasswordLogin() {
+      const id = document.getElementById("login-username").value;
+      const pass = document.getElementById("login-password").value;
+      const { status, data } = await apiRequest("/api/login", "POST", { id, password: pass });
+      if (status === 200 && data.token) {
+        setToken(data.token);
+        showToast("登录成功", `欢迎回来，指挥官！`);
+        checkMe();
+      } else {
+        alert(data.error || "登录失败");
+      }
+    }
+
+    async function handleRegister() {
+      const id = document.getElementById("login-username").value;
+      const pass = document.getElementById("login-password").value;
+      const { status, data } = await apiRequest("/api/register", "POST", {
+        nickname: id,
+        password: pass,
+        bio: "新注册指挥官"
+      });
+      if (status === 200) {
+        showToast("注册成功", "请使用刚刚注册的账号登录");
+      } else {
+        alert(data.error || "注册失败");
+      }
+    }
+
+    async function sendEmailCode() {
+      const email = document.getElementById("email-input").value;
+      if (!email) return alert("请输入有效邮箱");
+      const { status, data } = await apiRequest("/api/auth/email/send-code", "POST", { email });
+      if (status === 200) {
+        showToast("验证码已发送", "请在控制台或邮箱查收 6 位数字验证码");
+      } else {
+        alert(data.error || "发送验证码失败");
+      }
+    }
+
+    async function handleEmailLogin() {
+      const email = document.getElementById("email-input").value;
+      const code = document.getElementById("email-code").value;
+      const { status, data } = await apiRequest("/api/auth/email/login", "POST", { email, code });
+      if (status === 200 && data.token) {
+        setToken(data.token);
+        showToast("邮箱登录成功", "身份验证通过");
+        checkMe();
+      } else {
+        alert(data.error || "邮箱登录失败");
+      }
+    }
+
+    function setToken(token) {
+      authToken = token;
+      localStorage.setItem("gacha_token", token);
+    }
+
+    function handleLogout() {
+      authToken = "";
+      localStorage.removeItem("gacha_token");
+      document.getElementById("auth-box").style.display = "block";
+      document.getElementById("profile-box").style.display = "none";
+      document.getElementById("user-display").innerHTML = "<span>👤 游客 (未登录)</span>";
+      showToast("已登出", "指挥官已离线");
+    }
+
+    async function checkMe() {
+      if (!authToken) return;
+      const { status, data } = await apiRequest("/api/user/me");
+      if (status === 200) {
+        currentUser = data;
+        document.getElementById("auth-box").style.display = "none";
+        document.getElementById("profile-box").style.display = "block";
+        document.getElementById("prof-uid").textContent = data.user_id;
+        document.getElementById("prof-role").textContent = data.role.toUpperCase();
+        document.getElementById("prof-nickname").textContent = data.user_id;
+        document.getElementById("user-display").innerHTML = `<span>👤 ${data.user_id} (${data.role})</span>`;
+        loadInventory();
+      } else {
+        handleLogout();
+      }
+    }
+
+    // Gacha actions
+    async function performDraw(count) {
+      if (!authToken) {
+        alert("请先登录账号后再进行祈愿！");
+        return;
+      }
+
+      const revealBox = document.getElementById("reveal-box");
+      revealBox.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; color: var(--neon-cyan); padding: 2rem;">⚡ 星轨连接中，正在共鸣抽取角色...</div>`;
+
+      const { status, data } = await apiRequest("/api/gacha/draw", "POST", { count });
+      if (status !== 200) {
+        revealBox.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; color: var(--neon-pink); padding: 2rem;">抽卡失败: ${data.error || "未知异常"}</div>`;
+        return;
+      }
+
+      revealBox.innerHTML = "";
+      let lastPityS = 0;
+      data.results.forEach((item) => {
+        const char = item.character;
+        lastPityS = item.pity_count_s;
+        const card = document.createElement("div");
+        card.className = `card-item rarity-${char.rarity}`;
+        card.innerHTML = `
+          <div class="card-badge">${char.rarity} 级</div>
+          <div class="card-name">${char.name}</div>
+          <div class="card-meta">${item.is_first_time ? "✨ 新角色！" : `共鸣 rank ${item.rank}`}</div>
+          <div class="card-meta" style="font-size: 0.7rem; margin-top: 4px;">抽数: ${item.pity_count_s}</div>
+        `;
+        revealBox.appendChild(card);
+      });
+
+      document.getElementById("pity-s-counter").innerHTML = `${lastPityS} <span style="font-size: 0.9rem; color: var(--text-muted);">/ 80 抽</span>`;
+      loadInventory();
+    }
+
+    // Load Inventory
+    async function loadInventory() {
+      if (!authToken) return;
+      const { status, data } = await apiRequest("/api/gacha/inventory");
+      const grid = document.getElementById("inv-grid");
+      if (status === 200 && data.data) {
+        document.getElementById("inv-count").textContent = data.total || data.data.length;
+        if (data.data.length === 0) {
+          grid.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted);">仓库空空如也，快去抽卡吧！</div>`;
+          return;
+        }
+        grid.innerHTML = "";
+        data.data.forEach(uc => {
+          const char = uc.character;
+          const card = document.createElement("div");
+          card.className = `card-item rarity-${char.rarity}`;
+          card.innerHTML = `
+            <div class="card-badge">${char.rarity}</div>
+            <div class="card-name">${char.name}</div>
+            <div class="card-meta">Rank +${uc.rank}</div>
+          `;
+          grid.appendChild(card);
+        });
+      }
+    }
+
+    // Load Stats
+    async function loadStats() {
+      if (!authToken) return;
+      const { status, data } = await apiRequest("/api/gacha/stats");
+      const tbody = document.getElementById("stats-table-body");
+      if (status === 200 && data.history) {
+        document.getElementById("stats-count").textContent = data.total_s_count;
+        if (data.history.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">暂无 S 级出货记录</td></tr>`;
+          return;
+        }
+        tbody.innerHTML = "";
+        data.history.forEach(item => {
+          const isWon = item.is_won.includes("拿下");
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td style="font-weight: bold; color: var(--neon-gold);">${item.character_name}</td>
+            <td><strong>${item.pulls_taken}</strong> 抽</td>
+            <td class="${isWon ? 'tag-up-won' : 'tag-up-lost'}">${item.is_won}</td>
+            <td style="color: var(--text-muted); font-size: 0.8rem;">${item.pulled_at}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+    }
+
+    // Load History
+    async function loadHistory() {
+      if (!authToken) return;
+      const { status, data } = await apiRequest("/api/gacha/history?page_size=30");
+      const tbody = document.getElementById("history-table-body");
+      if (status === 200 && data.data) {
+        if (data.data.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">暂无历史记录</td></tr>`;
+          return;
+        }
+        tbody.innerHTML = "";
+        data.data.forEach(rec => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${rec.character_name}</td>
+            <td><span class="card-badge rarity-${rec.rarity}" style="font-size:0.7rem;">${rec.rarity}</span></td>
+            <td>${rec.pity_count}</td>
+            <td>${rec.is_first_time ? "是" : "否"}</td>
+            <td style="color: var(--text-muted); font-size: 0.8rem;">${new Date(rec.created_at).toLocaleString()}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+    }
+
+    // Admin updates
+    async function updatePoolConfig() {
+      if (!authToken) return alert("请以管理员权限登录！");
+      const payload = {
+        base_rate_s: parseFloat(document.getElementById("cfg-rate-s").value),
+        base_rate_a: parseFloat(document.getElementById("cfg-rate-a").value),
+        hard_pity_s: parseInt(document.getElementById("cfg-hard-s").value),
+        soft_pity_start: parseInt(document.getElementById("cfg-soft-start").value),
+        soft_pity_inc: parseFloat(document.getElementById("cfg-soft-inc").value),
+        max_limited_s: parseInt(document.getElementById("cfg-max-limited").value),
+      };
+
+      const { status, data } = await apiRequest("/api/admin/pool/config", "PUT", payload);
+      if (status === 200) {
+        showToast("更新成功", "卡池概率配置已更新，已同步至 gRPC 集群并广播通知");
+        loadPoolInfo();
+      } else {
+        alert("更新失败: " + (data.error || "权限不足或校验未通过"));
+      }
+    }
+
+    async function loadPresets() {
+      if (!authToken) return alert("请以管理员身份登录！");
+      const { status, data } = await apiRequest("/api/admin/pool/load-presets", "POST", {});
+      if (status === 200) {
+        showToast("预设加载完成", `已载入 ${data.count} 位角色至卡池！`);
+        loadPoolInfo();
+      } else {
+        alert("加载预设失败: " + (data.error || "未知异常"));
+      }
+    }
+
+    // On start
+    window.addEventListener("DOMContentLoaded", () => {
+      initSSE();
+      loadPoolInfo();
+      checkMe();
+    });
+  </script>
+</body>
+</html>

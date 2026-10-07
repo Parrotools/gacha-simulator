@@ -41,11 +41,17 @@ func initDB() {
 
 func setupRouter() *gin.Engine {
 	r := gin.Default()
+
+	// Static web interface
+	r.StaticFile("/", "./web/index.html")
+	r.Static("/web", "./web")
+
 	public := r.Group("/api")
 	{
 		public.POST("/register", RegisterHandler)
 		public.POST("/login", LoginHandler)
 		public.GET("/pool/info", GetPoolInfoHandler)
+		public.GET("/notifications", SSEHandler)
 
 		public.POST("/auth/email/send-code", SendEmailCodeHandler)
 		public.POST("/auth/email/login", EmailLoginHandler)
@@ -76,6 +82,7 @@ func setupRouter() *gin.Engine {
 			adminOnly.POST("/character", CreateCharacterHandler)
 			adminOnly.POST("/pool/push", PushCharacterToPoolHandler)
 			adminOnly.POST("/pool/load-presets", LoadPresetsHandler)
+			adminOnly.PUT("/pool/config", UpdatePoolConfigHandler)
 		}
 	}
 	return r
@@ -83,6 +90,8 @@ func setupRouter() *gin.Engine {
 
 func main() {
 	initDB()
+	go StartGRPCServer(":50051")
+	go StartGRPCConfigClient("localhost:50051")
 	r := setupRouter()
 	r.Run(":8080")
 }

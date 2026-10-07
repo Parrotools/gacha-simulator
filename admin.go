@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -74,13 +75,14 @@ func PushCharacterToPoolHandler(c *gin.Context) {
 	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		now := time.Now()
+		cfg := GetCurrentPoolConfig()
 		if char.Rarity == "S" {
 			if char.IsLimited {
 				var currentLimitedS []Character
 				if err := tx.Where("rarity = ? AND is_limited = ? AND is_in_pool = ?", "S", true, true).Order("entered_pool_at ASC").Find(&currentLimitedS).Error; err != nil {
 					return err
 				}
-				if len(currentLimitedS) >= GlobalConfig.MaxLimitedS {
+				if len(currentLimitedS) >= cfg.MaxLimitedS {
 					oldestChar := currentLimitedS[0]
 					if err := tx.Model(&oldestChar).Updates(map[string]interface{}{
 						"is_in_pool": false,
@@ -108,12 +110,14 @@ func PushCharacterToPoolHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to push into pool" + err.Error()})
 		return
 	}
+	GlobalSSEBroker.Broadcast("POOL_UPDATE", fmt.Sprintf("角色【%s】已加入卡池！", char.Name))
 	c.JSON(http.StatusOK, gin.H{
 		"message": "character pushed into pool successfully",
 		"data":    char,
 	})
 }
 func GetPoolInfoHandler(c *gin.Context) {
+	cfg := GetCurrentPoolConfig()
 	var limitedS []Character
 	DB.Where("rarity = ? AND is_limited = ? AND is_in_pool = ?", "S", true, true).Find(&limitedS)
 	var upS Character
@@ -121,7 +125,7 @@ func GetPoolInfoHandler(c *gin.Context) {
 	var standardChars []Character
 	DB.Where("is_limited = ? AND is_in_pool = ?", false, true).Find(&standardChars)
 	c.JSON(http.StatusOK, gin.H{
-		"config": GlobalConfig,
+		"config": cfg,
 		"banner": gin.H{
 			"up_character": func() interface{} {
 				if hasUp {
@@ -237,12 +241,13 @@ func LoadPresetsHandler(c *gin.Context) {
 			loadedChars = append(loadedChars, char)
 		}
 
+		cfg := GetCurrentPoolConfig()
 		var currentLimitedS []Character
 		if err := tx.Where("rarity = ? AND is_limited = ? AND is_in_pool = ?", "S", true, true).Order("entered_pool_at ASC").Find(&currentLimitedS).Error; err != nil {
 			return err
 		}
-		if len(currentLimitedS) > GlobalConfig.MaxLimitedS {
-			excess := len(currentLimitedS) - GlobalConfig.MaxLimitedS
+		if len(currentLimitedS) > cfg.MaxLimitedS {
+			excess := len(currentLimitedS) - cfg.MaxLimitedS
 			for i := 0; i < excess; i++ {
 				oldest := currentLimitedS[i]
 				if err := tx.Model(&oldest).Updates(map[string]interface{}{
@@ -268,9 +273,87 @@ func LoadPresetsHandler(c *gin.Context) {
 		return
 	}
 
+	GlobalSSEBroker.Broadcast("POOL_UPDATE", fmt.Sprintf("已成功载入 %d 位预设角色到卡池！", len(loadedChars)))
 	c.JSON(http.StatusOK, gin.H{
 		"message": "presets loaded successfully",
 		"count":   len(loadedChars),
 		"data":    loadedChars,
+	})
+}
+
+type UpdatePoolConfigReq struct {
+	BaseRateS     *float64 `json:"base_rate_s"`
+	BaseRateA     *float64 `json:"base_rate_a"`
+	BaseRateB     *float64 `json:"base_rate_b"`
+	SoftPityStart *int     `json:"soft_pity_start"`
+	SoftPityInc   *float64 `json:"soft_pity_inc"`
+	HardPityS     *int     `json:"hard_pity_s"`
+	HardPityA     *int     `json:"hard_pity_a"`
+	MaxLimitedS   *int     `json:"max_limited_s"`
+}
+
+func UpdatePoolConfigHandler(c *gin.Context) {
+	var req UpdatePoolConfigReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数解析失败: " + err.Error()})
+		return
+	}
+
+	oldCfg := GetCurrentPoolConfig()
+	newCfg := oldCfg
+
+	if req.BaseRateS != nil {
+		newCfg.BaseRateS = *req.BaseRateS
+	}
+	if req.BaseRateA != nil {
+		newCfg.BaseRateA = *req.BaseRateA
+	}
+	if req.BaseRateB != nil {
+		newCfg.BaseRateB = *req.BaseRateB
+	} else if req.BaseRateS != nil || req.BaseRateA != nil {
+		newCfg.BaseRateB = 1.0 - newCfg.BaseRateS - newCfg.BaseRateA
+	}
+	if req.SoftPityStart != nil {
+		newCfg.SoftPityStart = *req.SoftPityStart
+	}
+	if req.SoftPityInc != nil {
+		newCfg.SoftPityInc = *req.SoftPityInc
+	}
+	if req.HardPityS != nil {
+		newCfg.HardPityS = *req.HardPityS
+	}
+	if req.HardPityA != nil {
+		newCfg.HardPityA = *req.HardPityA
+	}
+	if req.MaxLimitedS != nil {
+		newCfg.MaxLimitedS = *req.MaxLimitedS
+	}
+
+	if newCfg.BaseRateS < 0 || newCfg.BaseRateS > 1 ||
+		newCfg.BaseRateA < 0 || newCfg.BaseRateA > 1 ||
+		newCfg.BaseRateB < 0 || newCfg.BaseRateB > 1 ||
+		newCfg.SoftPityStart < 0 ||
+		newCfg.SoftPityInc < 0 || newCfg.SoftPityInc > 1 ||
+		newCfg.HardPityS <= 0 ||
+		newCfg.HardPityA <= 0 ||
+		newCfg.MaxLimitedS <= 0 ||
+		newCfg.SoftPityStart >= newCfg.HardPityS {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "配置参数校验失败：概率与保底数值不合法"})
+		return
+	}
+
+	sum := newCfg.BaseRateS + newCfg.BaseRateA + newCfg.BaseRateB
+	if math.Abs(sum-1.0) > 1e-6 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "配置参数校验失败：基础概率总和(S+A+B)必须为1.0"})
+		return
+	}
+
+	GlobalConfigAtomic.Store(&newCfg)
+	BroadcastConfigToGRPC(&newCfg)
+	GlobalSSEBroker.Broadcast("PROB_UPDATE", "卡池概率配置已更新！")
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "卡池配置更新成功",
+		"config":  newCfg,
 	})
 }

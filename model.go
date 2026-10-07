@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sync/atomic"
 	"time"
 
 	"gorm.io/gorm"
@@ -56,7 +57,7 @@ type PoolConfig struct {
 	MaxLimitedS   int     `json:"max_limited_s"`
 }
 
-var GlobalConfig = PoolConfig{
+var currentConfigDefault = PoolConfig{
 	BaseRateS:     0.008,
 	BaseRateA:     0.080,
 	BaseRateB:     0.912,
@@ -66,4 +67,19 @@ var GlobalConfig = PoolConfig{
 	HardPityA:     10,
 	MaxLimitedS:   3,
 }
+
+var GlobalConfig = currentConfigDefault
+var GlobalConfigAtomic atomic.Pointer[PoolConfig]
+
+func init() {
+	GlobalConfigAtomic.Store(&currentConfigDefault)
+}
+
+func GetCurrentPoolConfig() PoolConfig {
+	if cfg := GlobalConfigAtomic.Load(); cfg != nil {
+		return *cfg
+	}
+	return currentConfigDefault
+}
+
 var DB *gorm.DB

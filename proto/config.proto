@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package proto;
+option go_package = "./proto";
+
+message EmptyRequest {}
+
+message PoolConfigMessage {
+  double base_rate_s = 1;
+  double base_rate_a = 2;
+  double base_rate_b = 3;
+  int32 soft_pity_start = 4;
+  double soft_pity_inc = 5;
+  int32 hard_pity_s = 6;
+  int32 hard_pity_a = 7;
+  int32 max_limited_s = 8;
+  int64 updated_at = 9;
+}
+
+service ConfigService {
+  rpc SubscribeConfigUpdates(EmptyRequest) returns (stream PoolConfigMessage);
+}

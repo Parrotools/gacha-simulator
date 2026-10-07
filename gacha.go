@@ -22,20 +22,21 @@ type DrawResult struct {
 }
 
 func drawOnce(tx *gorm.DB, user *User) (*DrawResult, error) {
+	cfg := GlobalConfigAtomic.Load()
 	user.PitySCount++
 	user.PityACount++
-	currentRateS := GlobalConfig.BaseRateS
-	if user.PitySCount >= GlobalConfig.HardPityS {
+	currentRateS := cfg.BaseRateS
+	if user.PitySCount >= cfg.HardPityS {
 		currentRateS = 1.0
-	} else if user.PitySCount > GlobalConfig.SoftPityStart {
-		extraPulls := user.PitySCount - GlobalConfig.SoftPityStart
-		currentRateS += float64(extraPulls) * GlobalConfig.SoftPityInc
+	} else if user.PitySCount > cfg.SoftPityStart {
+		extraPulls := user.PitySCount - cfg.SoftPityStart
+		currentRateS += float64(extraPulls) * cfg.SoftPityInc
 	}
 	roll := rand.Float64()
 	var hitRarity string
 	if roll < currentRateS {
 		hitRarity = "S"
-	} else if roll < (currentRateS+GlobalConfig.BaseRateA) || user.PityACount >= GlobalConfig.HardPityA {
+	} else if roll < (currentRateS+cfg.BaseRateA) || user.PityACount >= cfg.HardPityA {
 		hitRarity = "A"
 	} else {
 		hitRarity = "B"
