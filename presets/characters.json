@@ -1,0 +1,62 @@
+[
+  {
+    "name": "星渊猎手·卡莲",
+    "rarity": "S",
+    "is_limited": true,
+    "is_up": true
+  },
+  {
+    "name": "虚数神机·天枢",
+    "rarity": "S",
+    "is_limited": true,
+    "is_up": false
+  },
+  {
+    "name": "深空观测者·阿尔法",
+    "rarity": "S",
+    "is_limited": false,
+    "is_up": false
+  },
+  {
+    "name": "影刃特工·夜枭",
+    "rarity": "A",
+    "is_limited": false,
+    "is_up": false
+  },
+  {
+    "name": "重装机兵·瓦尔克",
+    "rarity": "A",
+    "is_limited": false,
+    "is_up": false
+  },
+  {
+    "name": "量子黑客·零",
+    "rarity": "A",
+    "is_limited": false,
+    "is_up": false
+  },
+  {
+    "name": "高频等离子光刃",
+    "rarity": "B",
+    "is_limited": false,
+    "is_up": false
+  },
+  {
+    "name": "便携离子爆能枪",
+    "rarity": "B",
+    "is_limited": false,
+    "is_up": false
+  },
+  {
+    "name": "微型能量折跃盾",
+    "rarity": "B",
+    "is_limited": false,
+    "is_up": false
+  },
+  {
+    "name": "战术电磁重弩",
+    "rarity": "B",
+    "is_limited": false,
+    "is_up": false
+  }
+]
