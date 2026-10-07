@@ -15,6 +15,11 @@ FROM debian:bookworm-slim
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder /app/server .
 COPY --from=builder /app/web ./web
 COPY --from=builder /app/presets ./presets
