@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -156,7 +158,14 @@ func LoadPresetsHandler(c *gin.Context) {
 		req.FilePath = "presets/characters.json"
 	}
 
-	data, err := os.ReadFile(req.FilePath)
+	cleanPath := filepath.Clean(req.FilePath)
+	slashPath := filepath.ToSlash(cleanPath)
+	if slashPath != "presets" && !strings.HasPrefix(slashPath, "presets/") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file path: must be located inside presets directory"})
+		return
+	}
+
+	data, err := os.ReadFile(cleanPath)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read preset file: " + err.Error()})
 		return
@@ -194,6 +203,9 @@ func LoadPresetsHandler(c *gin.Context) {
 						return err
 					}
 					char.IsUp = true
+					for i := range loadedChars {
+						loadedChars[i].IsUp = false
+					}
 				} else {
 					char.IsUp = false
 				}
@@ -212,6 +224,9 @@ func LoadPresetsHandler(c *gin.Context) {
 						return err
 					}
 					char.IsUp = true
+					for i := range loadedChars {
+						loadedChars[i].IsUp = false
+					}
 				} else {
 					char.IsUp = false
 				}
@@ -221,6 +236,30 @@ func LoadPresetsHandler(c *gin.Context) {
 			}
 			loadedChars = append(loadedChars, char)
 		}
+
+		var currentLimitedS []Character
+		if err := tx.Where("rarity = ? AND is_limited = ? AND is_in_pool = ?", "S", true, true).Order("entered_pool_at ASC").Find(&currentLimitedS).Error; err != nil {
+			return err
+		}
+		if len(currentLimitedS) > GlobalConfig.MaxLimitedS {
+			excess := len(currentLimitedS) - GlobalConfig.MaxLimitedS
+			for i := 0; i < excess; i++ {
+				oldest := currentLimitedS[i]
+				if err := tx.Model(&oldest).Updates(map[string]interface{}{
+					"is_in_pool": false,
+					"is_up":      false,
+				}).Error; err != nil {
+					return err
+				}
+				for j := range loadedChars {
+					if loadedChars[j].ID == oldest.ID {
+						loadedChars[j].IsInPool = false
+						loadedChars[j].IsUp = false
+					}
+				}
+			}
+		}
+
 		return nil
 	})
 
