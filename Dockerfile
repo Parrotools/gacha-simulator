@@ -16,5 +16,7 @@ FROM debian:bookworm-slim
 WORKDIR /app
 
 COPY --from=builder /app/server .
+COPY --from=builder /app/web ./web
+COPY --from=builder /app/presets ./presets
 
 CMD ["./server"]
