@@ -9,11 +9,12 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
-func initDB(){
+
+func initDB() {
 	var err error
-	DB,err = gorm.Open(sqlite.Open("gacha.db"), &gorm.Config{})
-	if err != nil{
-		log.Fatalf("Connection to database error:%v",err)
+	DB, err = gorm.Open(sqlite.Open("gacha.db"), &gorm.Config{})
+	if err != nil {
+		log.Fatalf("Connection to database error:%v", err)
 	}
 	err = DB.AutoMigrate(
 		&User{},
@@ -21,47 +22,67 @@ func initDB(){
 		&UserCharacter{},
 		&GachaRecord{},
 	)
-	if err != nil{
-		log.Fatalf("migration failed", err)
+	if err != nil {
+		log.Fatalf("migration failed: %v", err)
 	}
 	var adminCount int64
 	DB.Model(&User{}).Where("role = ?", "admin").Count(&adminCount)
 	if adminCount == 0 {
-		hashedPwd,_:=bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
+		hashedPwd, _ := bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
 		defaultAdmin := User{
-			ID: "admin",
-			Nickname:"Overall admin",
+			ID:       "admin",
+			Nickname: "Overall admin",
 			Password: string(hashedPwd),
-			Role: "admin",
+			Role:     "admin",
 		}
 		DB.Create(&defaultAdmin)
 	}
 }
-func main(){
-	initDB()
-	r:=gin.Default()
+
+func setupRouter() *gin.Engine {
+	r := gin.Default()
 	public := r.Group("/api")
 	{
 		public.POST("/register", RegisterHandler)
 		public.POST("/login", LoginHandler)
 		public.GET("/pool/info", GetPoolInfoHandler)
+
+		public.POST("/auth/email/send-code", SendEmailCodeHandler)
+		public.POST("/auth/email/login", EmailLoginHandler)
+		public.GET("/auth/github/login", GithubLoginHandler)
+		public.GET("/auth/github/callback", GithubCallbackHandler)
+		public.POST("/auth/github/callback", GithubCallbackHandler)
 	}
-	protected:=r.Group("/api")
+	protected := r.Group("/api")
 	protected.Use(AuthMiddleware())
 	{
-		protected.PUT("/user/profile",UpdateProfileHandler)
-		protected.POST("/user/logout",LogoutHandler)
+		protected.PUT("/user/profile", UpdateProfileHandler)
+		protected.POST("/user/logout", LogoutHandler)
 		protected.GET("/user/me", func(c *gin.Context) {
 			userID, _ := c.Get("userID")
 			role, _ := c.Get("role")
 			c.JSON(http.StatusOK, gin.H{"user_id": userID, "role": role})
 		})
+
+		protected.POST("/gacha/draw", DrawHandler)
+		protected.GET("/gacha/inventory", GetUserInventoryHandler)
+		protected.GET("/gacha/history", GetGachaHistoryHandler)
+		protected.GET("/gacha/stats", GetGachaStatsHandler)
+		protected.DELETE("/gacha/history", ClearHistoryHandler)
+
 		adminOnly := protected.Group("/admin")
 		adminOnly.Use(AdminRequired())
 		{
 			adminOnly.POST("/character", CreateCharacterHandler)
 			adminOnly.POST("/pool/push", PushCharacterToPoolHandler)
+			adminOnly.POST("/pool/load-presets", LoadPresetsHandler)
 		}
 	}
+	return r
+}
+
+func main() {
+	initDB()
+	r := setupRouter()
 	r.Run(":8080")
 }

@@ -3,9 +3,9 @@ package main
 import (
 	"crypto/ed25519"
 	"errors"
+	"github.com/golang-jwt/jwt/v5"
 	"log"
 	"time"
-	"github.com/golang-jwt/jwt/v5"
 )
 
 var privateKey ed25519.PrivateKey
