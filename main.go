@@ -79,6 +79,7 @@ func setupRouter() *gin.Engine {
 		adminOnly := protected.Group("/admin")
 		adminOnly.Use(AdminRequired())
 		{
+			adminOnly.GET("/characters", GetAdminCharactersHandler)
 			adminOnly.POST("/character", CreateCharacterHandler)
 			adminOnly.POST("/pool/push", PushCharacterToPoolHandler)
 			adminOnly.POST("/pool/load-presets", LoadPresetsHandler)

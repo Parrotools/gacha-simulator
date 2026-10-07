@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -33,8 +34,35 @@ type CreateCharacterReq struct {
 	IsLimited bool   `json:"is_limited"`
 }
 type PushToPoolReq struct {
-	CharacterID uint `json:"character_id" binding:"required"`
-	IsUp        bool `json:"is_up"`
+	CharacterID uint   `json:"character_id" binding:"required"`
+	IsUp        bool   `json:"is_up"`
+	Rarity      string `json:"rarity"`
+	IsLimited   *bool  `json:"is_limited"`
+}
+
+var poolMutationMutex sync.Mutex
+var errLimitedFlagRequiresS = errors.New("only S rarity characters can be limited")
+var errUpFlagRequiresS = errors.New("only S rarity characters can be UP")
+
+func normalizeCharacterDetails(name, rarity string) (string, string, error) {
+	name = strings.TrimSpace(name)
+	rarity = strings.TrimSpace(rarity)
+	if name == "" {
+		return "", "", errors.New("name is required")
+	}
+	if rarity != "S" && rarity != "A" && rarity != "B" {
+		return "", "", errors.New("rarity must be S, A, or B")
+	}
+	return name, rarity, nil
+}
+
+func GetAdminCharactersHandler(c *gin.Context) {
+	characters := make([]Character, 0)
+	if err := DB.Order("id ASC").Find(&characters).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load characters"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": characters})
 }
 
 func CreateCharacterHandler(c *gin.Context) {
@@ -43,13 +71,18 @@ func CreateCharacterHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
 		return
 	}
-	if req.Rarity != "S" && req.Rarity != "A" && req.Rarity != "B" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "rarity must be S A or B"})
+	name, rarity, err := normalizeCharacterDetails(req.Name, req.Rarity)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.IsLimited && rarity != "S" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "only S rarity characters can be limited"})
 		return
 	}
 	char := Character{
-		Name:      req.Name,
-		Rarity:    req.Rarity,
+		Name:      name,
+		Rarity:    rarity,
 		IsLimited: req.IsLimited,
 		IsInPool:  false,
 	}
@@ -68,45 +101,71 @@ func PushCharacterToPoolHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "wrong function"})
 		return
 	}
-	var char Character
-	if err := DB.First(&char, req.CharacterID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "unable to find the character"})
-		return
+	if req.Rarity != "" {
+		req.Rarity = strings.TrimSpace(req.Rarity)
+		if req.Rarity != "S" && req.Rarity != "A" && req.Rarity != "B" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "rarity must be S, A, or B"})
+			return
+		}
 	}
+
+	poolMutationMutex.Lock()
+	defer poolMutationMutex.Unlock()
+
+	var char Character
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.First(&char, req.CharacterID).Error; err != nil {
+			return err
+		}
+
+		wasLimitedS := char.Rarity == "S" && char.IsLimited && char.IsInPool
+		if req.Rarity != "" {
+			char.Rarity = req.Rarity
+		}
+		if req.IsLimited != nil {
+			char.IsLimited = *req.IsLimited
+		}
+		if char.IsLimited && char.Rarity != "S" {
+			return errLimitedFlagRequiresS
+		}
+		if req.IsUp && char.Rarity != "S" {
+			return errUpFlagRequiresS
+		}
+
 		now := time.Now()
-		cfg := GetCurrentPoolConfig()
-		if char.Rarity == "S" {
-			if char.IsLimited {
-				var currentLimitedS []Character
-				if err := tx.Where("rarity = ? AND is_limited = ? AND is_in_pool = ?", "S", true, true).Order("entered_pool_at ASC").Find(&currentLimitedS).Error; err != nil {
-					return err
-				}
-				if len(currentLimitedS) >= cfg.MaxLimitedS {
-					oldestChar := currentLimitedS[0]
-					if err := tx.Model(&oldestChar).Updates(map[string]interface{}{
-						"is_in_pool": false,
-						"is_up":      false,
-					}).Error; err != nil {
-						return err
-					}
-				}
-			}
-			if req.IsUp {
-				if err := tx.Model(&Character{}).Where("is_up = ?", true).Update("is_up", false).Error; err != nil {
-					return err
-				}
-				char.IsUp = true
-			}
+		if !char.IsInPool || char.EnteredPoolAt == nil || (char.Rarity == "S" && char.IsLimited && !wasLimitedS) {
+			char.EnteredPoolAt = &now
 		}
 		char.IsInPool = true
-		char.EnteredPoolAt = &now
+		char.IsUp = req.IsUp && char.Rarity == "S"
+		if char.IsUp {
+			if err := tx.Model(&Character{}).Where("id <> ? AND is_up = ?", char.ID, true).Update("is_up", false).Error; err != nil {
+				return err
+			}
+		}
 		if err := tx.Save(&char).Error; err != nil {
 			return err
+		}
+		if char.Rarity == "S" && char.IsLimited {
+			if err := enforceLimitedSCap(tx, GetCurrentPoolConfig().MaxLimitedS, char.ID, nil); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "unable to find the character"})
+			return
+		}
+		if errors.Is(err, errLimitedFlagRequiresS) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, errUpFlagRequiresS) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to push into pool" + err.Error()})
 		return
 	}
@@ -150,6 +209,44 @@ type PresetCharacter struct {
 	IsUp      bool   `json:"is_up"`
 }
 
+// enforceLimitedSCap evicts the oldest in-pool limited S characters until the
+// configured cap is met. keepID is excluded when a pushed character must stay
+// in the pool. Equal entry times are ordered by character ID.
+func enforceLimitedSCap(tx *gorm.DB, maxLimitedS int, keepID uint, loadedChars *[]Character) error {
+	var currentLimitedS []Character
+	if err := tx.Where("rarity = ? AND is_limited = ? AND is_in_pool = ?", "S", true, true).
+		Order("entered_pool_at ASC").Order("id ASC").Find(&currentLimitedS).Error; err != nil {
+		return err
+	}
+
+	remaining := len(currentLimitedS)
+	for i := range currentLimitedS {
+		if remaining <= maxLimitedS {
+			break
+		}
+		oldest := currentLimitedS[i]
+		if oldest.ID == keepID {
+			continue
+		}
+		if err := tx.Model(&oldest).Updates(map[string]interface{}{
+			"is_in_pool": false,
+			"is_up":      false,
+		}).Error; err != nil {
+			return err
+		}
+		remaining--
+		if loadedChars != nil {
+			for j := range *loadedChars {
+				if (*loadedChars)[j].ID == oldest.ID {
+					(*loadedChars)[j].IsInPool = false
+					(*loadedChars)[j].IsUp = false
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func LoadPresetsHandler(c *gin.Context) {
 	var req LoadPresetsReq
 	if c.Request.Body != nil && c.Request.ContentLength > 0 {
@@ -184,14 +281,34 @@ func LoadPresetsHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "preset file is empty"})
 		return
 	}
+	upCount := 0
+	for i := range presetList {
+		name, rarity, err := normalizeCharacterDetails(presetList[i].Name, presetList[i].Rarity)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid character preset: " + err.Error()})
+			return
+		}
+		presetList[i].Name = name
+		presetList[i].Rarity = rarity
+		if rarity != "S" && (presetList[i].IsLimited || presetList[i].IsUp) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "only S rarity characters can be limited or UP"})
+			return
+		}
+		if presetList[i].IsUp {
+			upCount++
+			if upCount > 1 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "only one preset character can be UP"})
+				return
+			}
+		}
+	}
 
 	var loadedChars []Character
+	poolMutationMutex.Lock()
+	defer poolMutationMutex.Unlock()
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		now := time.Now()
 		for _, item := range presetList {
-			if item.Name == "" || (item.Rarity != "S" && item.Rarity != "A" && item.Rarity != "B") {
-				return fmt.Errorf("invalid character preset: name=%s rarity=%s", item.Name, item.Rarity)
-			}
 			var char Character
 			err := tx.Where("name = ?", item.Name).First(&char).Error
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -200,18 +317,16 @@ func LoadPresetsHandler(c *gin.Context) {
 					Rarity:        item.Rarity,
 					IsLimited:     item.IsLimited,
 					IsInPool:      true,
+					IsUp:          item.IsUp,
 					EnteredPoolAt: &now,
 				}
-				if item.Rarity == "S" && item.IsUp {
+				if item.IsUp {
 					if err := tx.Model(&Character{}).Where("is_up = ?", true).Update("is_up", false).Error; err != nil {
 						return err
 					}
-					char.IsUp = true
 					for i := range loadedChars {
 						loadedChars[i].IsUp = false
 					}
-				} else {
-					char.IsUp = false
 				}
 				if err := tx.Create(&char).Error; err != nil {
 					return err
@@ -219,20 +334,22 @@ func LoadPresetsHandler(c *gin.Context) {
 			} else if err != nil {
 				return err
 			} else {
+				wasLimitedS := char.Rarity == "S" && char.IsLimited && char.IsInPool
+				wasInPool := char.IsInPool
 				char.Rarity = item.Rarity
 				char.IsLimited = item.IsLimited
 				char.IsInPool = true
-				char.EnteredPoolAt = &now
-				if item.Rarity == "S" && item.IsUp {
+				if !wasInPool || char.EnteredPoolAt == nil || (item.Rarity == "S" && item.IsLimited && !wasLimitedS) {
+					char.EnteredPoolAt = &now
+				}
+				char.IsUp = item.IsUp
+				if item.IsUp {
 					if err := tx.Model(&Character{}).Where("is_up = ?", true).Update("is_up", false).Error; err != nil {
 						return err
 					}
-					char.IsUp = true
 					for i := range loadedChars {
 						loadedChars[i].IsUp = false
 					}
-				} else {
-					char.IsUp = false
 				}
 				if err := tx.Save(&char).Error; err != nil {
 					return err
@@ -241,28 +358,8 @@ func LoadPresetsHandler(c *gin.Context) {
 			loadedChars = append(loadedChars, char)
 		}
 
-		cfg := GetCurrentPoolConfig()
-		var currentLimitedS []Character
-		if err := tx.Where("rarity = ? AND is_limited = ? AND is_in_pool = ?", "S", true, true).Order("entered_pool_at ASC").Find(&currentLimitedS).Error; err != nil {
+		if err := enforceLimitedSCap(tx, GetCurrentPoolConfig().MaxLimitedS, 0, &loadedChars); err != nil {
 			return err
-		}
-		if len(currentLimitedS) > cfg.MaxLimitedS {
-			excess := len(currentLimitedS) - cfg.MaxLimitedS
-			for i := 0; i < excess; i++ {
-				oldest := currentLimitedS[i]
-				if err := tx.Model(&oldest).Updates(map[string]interface{}{
-					"is_in_pool": false,
-					"is_up":      false,
-				}).Error; err != nil {
-					return err
-				}
-				for j := range loadedChars {
-					if loadedChars[j].ID == oldest.ID {
-						loadedChars[j].IsInPool = false
-						loadedChars[j].IsUp = false
-					}
-				}
-			}
 		}
 
 		return nil
