@@ -774,23 +774,52 @@
         <div class="card" id="auth-box">
           <h3 style="margin-bottom: 1rem;">终端认证 / 用户登录</h3>
           
-          <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
-            <button class="tab-btn active" style="padding: 0.4rem 0.6rem; font-size: 0.82rem;" id="auth-tab-pass" onclick="switchAuthTab('pass')">账号密码</button>
-            <button class="tab-btn" style="padding: 0.4rem 0.6rem; font-size: 0.82rem;" id="auth-tab-email" onclick="switchAuthTab('email')">邮箱验证</button>
+          <div style="display: flex; gap: 0.35rem; margin-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.25rem;">
+            <button class="tab-btn active" style="padding: 0.4rem 0.5rem; font-size: 0.82rem; flex: 1; text-align: center;" id="auth-tab-pass" onclick="switchAuthTab('login')">账号登录</button>
+            <button class="tab-btn" style="padding: 0.4rem 0.5rem; font-size: 0.82rem; flex: 1; text-align: center;" id="auth-tab-register" onclick="switchAuthTab('register')">注册账号</button>
+            <button class="tab-btn" style="padding: 0.4rem 0.5rem; font-size: 0.82rem; flex: 1; text-align: center;" id="auth-tab-email" onclick="switchAuthTab('email')">邮箱验证</button>
           </div>
 
-          <!-- Password Form -->
+          <!-- Password Login Form -->
           <div id="auth-form-pass">
             <div class="input-group">
-              <label>用户名 / 用户ID</label>
-              <input class="input-control" id="login-username" placeholder="用户名 / ID">
+              <label>UID 或 昵称</label>
+              <input class="input-control" id="login-username" placeholder="请输入 UID 或 昵称">
             </div>
             <div class="input-group">
               <label>密码</label>
               <input class="input-control" type="password" id="login-password" placeholder="请输入密码">
             </div>
             <button class="btn-action" onclick="handlePasswordLogin()">登录</button>
-            <button class="btn-action btn-secondary" onclick="handleRegister()">注册新账号</button>
+            <div style="margin-top: 0.85rem; text-align: center; font-size: 0.82rem;">
+              <span style="color: var(--text-muted);">没有账号？</span>
+              <a href="javascript:void(0)" onclick="switchAuthTab('register')" style="color: var(--neon-cyan); text-decoration: none; font-weight: 600; margin-left: 0.25rem; cursor: pointer;">立即注册</a>
+            </div>
+          </div>
+
+          <!-- Dedicated Registration Form -->
+          <div id="auth-form-register" style="display: none;">
+            <div class="input-group">
+              <label>指挥官昵称 <span style="color: var(--neon-pink); font-size: 0.75rem;">*</span></label>
+              <input class="input-control" id="reg-nickname" placeholder="如: 星穹开拓者">
+            </div>
+            <div class="input-group">
+              <label>设置密码 <span style="color: var(--neon-pink); font-size: 0.75rem;">* (至少6位)</span></label>
+              <input class="input-control" type="password" id="reg-password" placeholder="请输入登录密码 (至少6位)">
+            </div>
+            <div class="input-group">
+              <label>确认密码 <span style="color: var(--neon-pink); font-size: 0.75rem;">*</span></label>
+              <input class="input-control" type="password" id="reg-confirm-password" placeholder="请再次输入密码">
+            </div>
+            <div class="input-group">
+              <label>个人简介 <span style="color: var(--text-muted); font-size: 0.75rem;">(选填)</span></label>
+              <input class="input-control" id="reg-bio" placeholder="个性签名 (选填)" value="新晋星穹开拓者">
+            </div>
+            <button class="btn-action" style="background: linear-gradient(135deg, var(--neon-cyan), #0284c7);" onclick="handleRegister()">立即注册并登录</button>
+            <div style="margin-top: 0.85rem; text-align: center; font-size: 0.82rem;">
+              <span style="color: var(--text-muted);">已有账号？</span>
+              <a href="javascript:void(0)" onclick="switchAuthTab('login')" style="color: var(--neon-cyan); text-decoration: none; font-weight: 600; margin-left: 0.25rem; cursor: pointer;">去登录</a>
+            </div>
           </div>
 
           <!-- Email Form -->
@@ -915,10 +944,10 @@
 
     // Tab switching
     function switchTab(tabId) {
-      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".tabs-nav .tab-btn").forEach(b => b.classList.remove("active"));
       document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
       
-      const btn = Array.from(document.querySelectorAll(".tab-btn")).find(b => b.getAttribute("onclick")?.includes(tabId));
+      const btn = Array.from(document.querySelectorAll(".tabs-nav .tab-btn")).find(b => b.getAttribute("onclick")?.includes(tabId));
       if (btn) btn.classList.add("active");
       
       const panel = document.getElementById(`tab-${tabId}`);
@@ -931,16 +960,25 @@
     }
 
     function switchAuthTab(type) {
-      if (type === "pass") {
-        document.getElementById("auth-tab-pass").classList.add("active");
-        document.getElementById("auth-tab-email").classList.remove("active");
-        document.getElementById("auth-form-pass").style.display = "block";
-        document.getElementById("auth-form-email").style.display = "none";
+      const tabPass = document.getElementById("auth-tab-pass");
+      const tabReg = document.getElementById("auth-tab-register");
+      const tabEmail = document.getElementById("auth-tab-email");
+      const formPass = document.getElementById("auth-form-pass");
+      const formReg = document.getElementById("auth-form-register");
+      const formEmail = document.getElementById("auth-form-email");
+
+      [tabPass, tabReg, tabEmail].forEach(t => t && t.classList.remove("active"));
+      [formPass, formReg, formEmail].forEach(f => f && (f.style.display = "none"));
+
+      if (type === "register") {
+        if (tabReg) tabReg.classList.add("active");
+        if (formReg) formReg.style.display = "block";
+      } else if (type === "email") {
+        if (tabEmail) tabEmail.classList.add("active");
+        if (formEmail) formEmail.style.display = "block";
       } else {
-        document.getElementById("auth-tab-email").classList.add("active");
-        document.getElementById("auth-tab-pass").classList.remove("active");
-        document.getElementById("auth-form-email").style.display = "block";
-        document.getElementById("auth-form-pass").style.display = "none";
+        if (tabPass) tabPass.classList.add("active");
+        if (formPass) formPass.style.display = "block";
       }
     }
 
@@ -976,12 +1014,18 @@
 
     // Auth actions
     async function handlePasswordLogin() {
-      const id = document.getElementById("login-username").value;
-      const pass = document.getElementById("login-password").value;
+      const id = document.getElementById("login-username")?.value.trim() || "";
+      const pass = document.getElementById("login-password")?.value || "";
+      if (!id || !pass) {
+        showToast("登录提示", "请输入 UID / 昵称 与密码");
+        alert("请输入 UID / 昵称 与密码");
+        return;
+      }
       const { status, data } = await apiRequest("/api/login", "POST", { id, password: pass });
       if (status === 200 && data.token) {
         setToken(data.token);
-        showToast("登录成功", `欢迎回来，指挥官！`);
+        const name = data.user?.nickname || "指挥官";
+        showToast("登录成功", `欢迎回来，${name}！`);
         checkMe();
       } else {
         alert(data.error || "登录失败");
@@ -989,15 +1033,57 @@
     }
 
     async function handleRegister() {
-      const id = document.getElementById("login-username").value;
-      const pass = document.getElementById("login-password").value;
+      const nickname = document.getElementById("reg-nickname")?.value.trim() || "";
+      const password = document.getElementById("reg-password")?.value || "";
+      const confirmPassword = document.getElementById("reg-confirm-password")?.value || "";
+      const bio = document.getElementById("reg-bio")?.value.trim() || "新晋星穹开拓者";
+
+      if (!nickname) {
+        showToast("注册提示", "请输入指挥官昵称");
+        alert("请输入指挥官昵称");
+        return;
+      }
+      if (!password) {
+        showToast("注册提示", "请输入登录密码");
+        alert("请输入登录密码");
+        return;
+      }
+      if (password.length < 6) {
+        showToast("注册提示", "密码长度不能少于 6 位");
+        alert("密码长度不能少于 6 位");
+        return;
+      }
+      if (password !== confirmPassword) {
+        showToast("注册提示", "两次输入的密码不一致");
+        alert("两次输入的密码不一致");
+        return;
+      }
+
       const { status, data } = await apiRequest("/api/register", "POST", {
-        nickname: id,
-        password: pass,
-        bio: "新注册指挥官"
+        nickname,
+        password,
+        bio
       });
-      if (status === 200) {
-        showToast("注册成功", "请使用刚刚注册的账号登录");
+
+      if (status === 200 && data.data) {
+        const assignedId = data.data.id;
+        const assignedNickname = data.data.nickname;
+        showToast("注册成功", `您的专属指挥官 UID 为: ${assignedId}，正在自动为您登录...`);
+
+        // Pre-fill login input in case user logs out later
+        const loginUserInput = document.getElementById("login-username");
+        if (loginUserInput) loginUserInput.value = assignedId;
+
+        // Auto login with generated UID
+        const loginRes = await apiRequest("/api/login", "POST", { id: assignedId, password });
+        if (loginRes.status === 200 && loginRes.data.token) {
+          setToken(loginRes.data.token);
+          showToast("登录成功", `欢迎加入星穹开拓者，${assignedNickname || assignedId}！`);
+          checkMe();
+        } else {
+          switchAuthTab("login");
+          showToast("注册成功", `您的 UID 为: ${assignedId}，请直接输入密码登录`);
+        }
       } else {
         alert(data.error || "注册失败");
       }
@@ -1374,6 +1460,32 @@
       initSSE();
       loadPoolInfo();
       checkMe();
+
+      // Enter key shortcuts for auth forms
+      ["login-username", "login-password"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") handlePasswordLogin();
+          });
+        }
+      });
+      ["reg-nickname", "reg-password", "reg-confirm-password", "reg-bio"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") handleRegister();
+          });
+        }
+      });
+      ["email-input", "email-code"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") handleEmailLogin();
+          });
+        }
+      });
     });
   </script>
 </body>

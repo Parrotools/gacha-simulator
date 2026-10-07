@@ -75,7 +75,7 @@ func LoginHandler(c *gin.Context) {
 		return
 	}
 	var user User
-	if err := DB.Where("id=?", req.ID).First(&user).Error; err != nil {
+	if err := DB.Where("id = ? OR nickname = ?", req.ID, req.ID).First(&user).Error; err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "account not found"})
 		return
 	}
