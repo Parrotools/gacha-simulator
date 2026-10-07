@@ -41,7 +41,7 @@ func GenerateToken(userID string, role string) (string, error) {
 func ParseToken(tokenString string) (*CustomClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &CustomClaims{}, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodEd25519); !ok {
-			return nil, errors.New("SigningMethod Rejected!")
+			return nil, errors.New("signingMethod rejected")
 		}
 		return publicKey, nil
 	})
@@ -51,5 +51,5 @@ func ParseToken(tokenString string) (*CustomClaims, error) {
 	if claims, ok := token.Claims.(*CustomClaims); ok && token.Valid {
 		return claims, nil
 	}
-	return nil, errors.New("Token failed")
+	return nil, errors.New("token failed")
 }

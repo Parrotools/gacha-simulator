@@ -1,0 +1,18 @@
+name: Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deployment:
+    runs-on: ubuntu-latest
+
+    environment:
+      name: production
+      url: https://gacha-simulator-production.up.railway.app/
+
+    steps:
+      - name: Mark deployment
+        run: echo "Railway deployment completed"
