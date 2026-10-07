@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -336,6 +337,32 @@ func GithubCallbackHandler(c *gin.Context) {
 	token, err := GenerateToken(user.ID, user.Role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate token: " + err.Error()})
+		return
+	}
+
+	if strings.Contains(c.GetHeader("Accept"), "text/html") {
+		userMap := gin.H{
+			"id":        user.ID,
+			"nickname":  user.Nickname,
+			"role":      user.Role,
+			"bio":       user.Bio,
+			"email":     user.Email,
+			"github_id": user.GithubID,
+		}
+		userJSONBytes, _ := json.Marshal(userMap)
+		htmlContent := fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>GitHub Login</title></head>
+<body>
+<p style="text-align:center;margin-top:20vh;font-family:sans-serif;color:#333;">GitHub 授权成功，正在跳转...</p>
+<script>
+    localStorage.setItem('gacha_token', '%s');
+    localStorage.setItem('gacha_user', JSON.stringify(%s));
+    window.location.href = '/';
+</script>
+</body>
+</html>`, token, string(userJSONBytes))
+		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(htmlContent))
 		return
 	}
 
