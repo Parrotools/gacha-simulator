@@ -46,6 +46,15 @@ type GachaRecord struct {
 	PityCount     int       `json:"pity_count"`
 	CreatedAt     time.Time `json:"created_at"`
 }
+type DivinationRecord struct {
+	ID           uint      `gorm:"primaryKey" json:"id"`
+	UserID       string    `gorm:"uniqueIndex:idx_user_date;not null" json:"user_id"`
+	Date         string    `gorm:"uniqueIndex:idx_user_date;not null" json:"date"` // format: "2006-01-02"
+	Sign         string    `json:"sign"`                                           // e.g. "大吉·星神注视", "中吉·跃迁顺风", "平·虚数微澜", "末吉·星核阻滞"
+	Description  string    `json:"description"`                                    // celestial fortune text
+	RewardAmount int       `json:"reward_amount"`                                  // e.g. 60 or 100 Stellar Jade
+	CreatedAt    time.Time `json:"created_at"`
+}
 type PoolConfig struct {
 	BaseRateS     float64 `json:"base_rate_s"`
 	BaseRateA     float64 `json:"base_rate_a"`

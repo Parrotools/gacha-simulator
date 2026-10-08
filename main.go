@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"net/http"
 
@@ -21,6 +22,7 @@ func initDB() {
 		&Character{},
 		&UserCharacter{},
 		&GachaRecord{},
+		&DivinationRecord{},
 	)
 	if err != nil {
 		log.Fatalf("migration failed: %v", err)
@@ -39,18 +41,10 @@ func initDB() {
 	}
 }
 
-func setupRouter() *gin.Engine {
-	r := gin.Default()
-
-	// Static web interface
-	r.StaticFile("/", "./web/index.html")
-	r.Static("/web", "./web")
-
-	public := r.Group("/api")
-	{
+func setupManagementRoutes(public *gin.RouterGroup, protected *gin.RouterGroup, adminOnly *gin.RouterGroup) {
+	if public != nil {
 		public.POST("/register", RegisterHandler)
 		public.POST("/login", LoginHandler)
-		public.GET("/pool/info", GetPoolInfoHandler)
 		public.GET("/notifications", SSEHandler)
 
 		public.POST("/auth/email/send-code", SendEmailCodeHandler)
@@ -59,11 +53,12 @@ func setupRouter() *gin.Engine {
 		public.GET("/auth/github/callback", GithubCallbackHandler)
 		public.POST("/auth/github/callback", GithubCallbackHandler)
 	}
-	protected := r.Group("/api")
-	protected.Use(AuthMiddleware())
-	{
+
+	if protected != nil {
 		protected.PUT("/user/profile", UpdateProfileHandler)
 		protected.POST("/user/logout", LogoutHandler)
+		protected.POST("/user/divination", DivinationHandler)
+		protected.GET("/user/divination", GetDivinationHandler)
 		protected.GET("/user/me", func(c *gin.Context) {
 			userID, _ := c.Get("userID")
 			role, _ := c.Get("role")
@@ -81,30 +76,118 @@ func setupRouter() *gin.Engine {
 			}
 			c.JSON(http.StatusOK, gin.H{"user_id": userID, "role": role})
 		})
+	}
 
+	if adminOnly != nil {
+		adminOnly.GET("/characters", GetAdminCharactersHandler)
+		adminOnly.POST("/character", CreateCharacterHandler)
+		adminOnly.POST("/pool/push", PushCharacterToPoolHandler)
+		adminOnly.POST("/pool/load-presets", LoadPresetsHandler)
+		adminOnly.PUT("/pool/config", UpdatePoolConfigHandler)
+	}
+}
+
+func setupGameRoutes(public *gin.RouterGroup, protected *gin.RouterGroup) {
+	if public != nil {
+		public.GET("/pool/info", GetPoolInfoHandler)
+	}
+	if protected != nil {
 		protected.POST("/gacha/draw", DrawHandler)
 		protected.GET("/gacha/inventory", GetUserInventoryHandler)
 		protected.GET("/gacha/history", GetGachaHistoryHandler)
 		protected.GET("/gacha/stats", GetGachaStatsHandler)
 		protected.DELETE("/gacha/history", ClearHistoryHandler)
-
-		adminOnly := protected.Group("/admin")
-		adminOnly.Use(AdminRequired())
-		{
-			adminOnly.GET("/characters", GetAdminCharactersHandler)
-			adminOnly.POST("/character", CreateCharacterHandler)
-			adminOnly.POST("/pool/push", PushCharacterToPoolHandler)
-			adminOnly.POST("/pool/load-presets", LoadPresetsHandler)
-			adminOnly.PUT("/pool/config", UpdatePoolConfigHandler)
-		}
+		protected.POST("/gacha/simulate", SimulateGachaHandler)
 	}
+}
+
+func setupManagementEngine() *gin.Engine {
+	r := gin.Default()
+
+	r.StaticFile("/", "./web/index.html")
+	r.Static("/web", "./web")
+
+	public := r.Group("/api")
+	protected := r.Group("/api")
+	protected.Use(AuthMiddleware())
+	adminOnly := protected.Group("/admin")
+	adminOnly.Use(AdminRequired())
+
+	setupManagementRoutes(public, protected, adminOnly)
+	return r
+}
+
+func setupGameEngine() *gin.Engine {
+	r := gin.Default()
+
+	public := r.Group("/api")
+	protected := r.Group("/api")
+	protected.Use(AuthMiddleware())
+
+	setupGameRoutes(public, protected)
+	return r
+}
+
+func setupRouter() *gin.Engine {
+	r := gin.Default()
+
+	// Static web interface
+	r.StaticFile("/", "./web/index.html")
+	r.Static("/web", "./web")
+
+	public := r.Group("/api")
+	protected := r.Group("/api")
+	protected.Use(AuthMiddleware())
+	adminOnly := protected.Group("/admin")
+	adminOnly.Use(AdminRequired())
+
+	setupManagementRoutes(public, protected, adminOnly)
+	setupGameRoutes(public, protected)
 	return r
 }
 
 func main() {
-	initDB()
-	go StartGRPCServer(":50051")
-	go StartGRPCConfigClient("localhost:50051")
-	r := setupRouter()
-	r.Run(":8080")
+	mode := flag.String("mode", "all", "Server run mode: all, management, game")
+	port := flag.String("port", "", "Server HTTP port (defaults: 8080 for all/management, 8081 for game)")
+	flag.Parse()
+
+	switch *mode {
+	case "management":
+		initDB()
+		go StartGRPCServer(":50051")
+		r := setupManagementEngine()
+		p := ":8080"
+		if *port != "" {
+			p = ":" + *port
+		}
+		log.Printf("Starting Management Server on %s (gRPC on :50051)...", p)
+		if err := r.Run(p); err != nil {
+			log.Fatalf("Management Server failed: %v", err)
+		}
+	case "game":
+		initDB()
+		go StartGRPCConfigClient("localhost:50051")
+		r := setupGameEngine()
+		p := ":8081"
+		if *port != "" {
+			p = ":" + *port
+		}
+		log.Printf("Starting Game Server on %s (gRPC connecting to localhost:50051)...", p)
+		if err := r.Run(p); err != nil {
+			log.Fatalf("Game Server failed: %v", err)
+		}
+	default:
+		initDB()
+		go StartGRPCServer(":50051")
+		go StartGRPCConfigClient("localhost:50051")
+		r := setupRouter()
+		p := ":8080"
+		if *port != "" {
+			p = ":" + *port
+		}
+		log.Printf("Starting Combined Server on %s (gRPC on :50051)...", p)
+		if err := r.Run(p); err != nil {
+			log.Fatalf("Combined Server failed: %v", err)
+		}
+	}
 }

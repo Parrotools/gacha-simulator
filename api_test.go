@@ -41,6 +41,7 @@ func setupTestDB(t *testing.T) {
 		&Character{},
 		&UserCharacter{},
 		&GachaRecord{},
+		&DivinationRecord{},
 	)
 	if err != nil {
 		t.Fatalf("Failed to run migrations: %v", err)
@@ -1503,3 +1504,425 @@ func TestSSENotificationStream(t *testing.T) {
 		t.Fatalf("Timed out waiting for PROB_UPDATE SSE message")
 	}
 }
+
+func TestServerDecoupling(t *testing.T) {
+	setupTestDB(t)
+	mgmtRouter := setupManagementEngine()
+	gameRouter := setupGameEngine()
+
+	// 1. Management server should NOT route game endpoints
+	w := performRequest(mgmtRouter, "GET", "/api/pool/info", nil, nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("Expected 404 for /api/pool/info on management engine, got %d", w.Code)
+	}
+	w = performRequest(mgmtRouter, "POST", "/api/gacha/draw", map[string]int{"count": 1}, nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("Expected 404 for /api/gacha/draw on management engine, got %d", w.Code)
+	}
+
+	// 2. Game server should NOT route management/auth/admin endpoints
+	w = performRequest(gameRouter, "POST", "/api/register", map[string]string{
+		"nickname": "test_user", "password": "pw",
+	}, nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("Expected 404 for /api/register on game engine, got %d", w.Code)
+	}
+	w = performRequest(gameRouter, "POST", "/api/login", map[string]string{
+		"id": "admin", "password": "admin123",
+	}, nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("Expected 404 for /api/login on game engine, got %d", w.Code)
+	}
+	w = performRequest(gameRouter, "GET", "/api/user/me", nil, nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("Expected 404 for /api/user/me on game engine, got %d", w.Code)
+	}
+
+	// 3. User registers and logs in on Management Server
+	regReq := map[string]string{
+		"nickname": "decoupled_player",
+		"password": "playerpass",
+	}
+	w = performRequest(mgmtRouter, "POST", "/api/register", regReq, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Registration failed on management server: %d", w.Code)
+	}
+	var regResp struct {
+		Data struct{ ID string }
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &regResp)
+	playerID := regResp.Data.ID
+
+	loginReq := map[string]string{
+		"id":       playerID,
+		"password": "playerpass",
+	}
+	w = performRequest(mgmtRouter, "POST", "/api/login", loginReq, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Login failed on management server: %d", w.Code)
+	}
+	var loginResp struct {
+		Token string `json:"token"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &loginResp)
+	playerToken := loginResp.Token
+	playerHeader := map[string]string{"Authorization": "Bearer " + playerToken}
+
+	// 4. Admin configures character & pool on Management Server
+	adminLoginReq := map[string]string{"id": "admin", "password": "admin123"}
+	w = performRequest(mgmtRouter, "POST", "/api/login", adminLoginReq, nil)
+	var adminLoginResp struct{ Token string }
+	_ = json.Unmarshal(w.Body.Bytes(), &adminLoginResp)
+	adminHeader := map[string]string{"Authorization": "Bearer " + adminLoginResp.Token}
+
+	charReq := map[string]interface{}{"name": "Firefly", "rarity": "S", "is_limited": true}
+	w = performRequest(mgmtRouter, "POST", "/api/admin/character", charReq, adminHeader)
+	var charResp struct{ Data Character }
+	_ = json.Unmarshal(w.Body.Bytes(), &charResp)
+
+	pushReq := map[string]interface{}{"character_id": charResp.Data.ID, "is_up": true}
+	performRequest(mgmtRouter, "POST", "/api/admin/pool/push", pushReq, adminHeader)
+
+	// Add standard A & B characters
+	wA := performRequest(mgmtRouter, "POST", "/api/admin/character", map[string]interface{}{"name": "Gallagher", "rarity": "A"}, adminHeader)
+	var cRespA struct{ Data Character }
+	_ = json.Unmarshal(wA.Body.Bytes(), &cRespA)
+	performRequest(mgmtRouter, "POST", "/api/admin/pool/push", map[string]interface{}{"character_id": cRespA.Data.ID, "is_up": false}, adminHeader)
+
+	wB := performRequest(mgmtRouter, "POST", "/api/admin/character", map[string]interface{}{"name": "LightCone3", "rarity": "B"}, adminHeader)
+	var cRespB struct{ Data Character }
+	_ = json.Unmarshal(wB.Body.Bytes(), &cRespB)
+	performRequest(mgmtRouter, "POST", "/api/admin/pool/push", map[string]interface{}{"character_id": cRespB.Data.ID, "is_up": false}, adminHeader)
+
+	// 5. Game Server serves pool info publicly
+	w = performRequest(gameRouter, "GET", "/api/pool/info", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for /api/pool/info on game engine, got %d", w.Code)
+	}
+
+	// 6. Game Server verifies JWT from Management Server and performs draw
+	drawReq := map[string]int{"count": 1}
+	w = performRequest(gameRouter, "POST", "/api/gacha/draw", drawReq, playerHeader)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for draw on game engine with management-issued JWT, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 7. Game Server queries inventory
+	w = performRequest(gameRouter, "GET", "/api/gacha/inventory", nil, playerHeader)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for inventory on game engine, got %d", w.Code)
+	}
+
+	// 8. Management Server verifies user info
+	w = performRequest(mgmtRouter, "GET", "/api/user/me", nil, playerHeader)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for /api/user/me on management engine, got %d", w.Code)
+	}
+}
+
+func TestEd25519KeyPersistenceAndValidation(t *testing.T) {
+	token, err := GenerateToken("user_persisted", "user")
+	if err != nil {
+		t.Fatalf("GenerateToken failed: %v", err)
+	}
+
+	claims, err := ParseToken(token)
+	if err != nil {
+		t.Fatalf("ParseToken failed: %v", err)
+	}
+	if claims.UserID != "user_persisted" || claims.Role != "user" {
+		t.Fatalf("Claims mismatch: %+v", claims)
+	}
+
+	// Reload keys from disk (simulating separate Game Server starting up)
+	loadOrGenerateKeys()
+
+	claimsAfterReload, err := ParseToken(token)
+	if err != nil {
+		t.Fatalf("ParseToken failed after reloading keys: %v", err)
+	}
+	if claimsAfterReload.UserID != "user_persisted" {
+		t.Fatalf("Claims mismatch after reload: %+v", claimsAfterReload)
+	}
+}
+
+func TestDailyDivination(t *testing.T) {
+	setupTestDB(t)
+	r := setupRouter()
+
+	// 1. Create a user
+	user := User{
+		ID:       "divination_user",
+		Nickname: "Diviner",
+		Password: "password",
+		Role:     "user",
+	}
+	if err := DB.Create(&user).Error; err != nil {
+		t.Fatalf("Failed to create user: %v", err)
+	}
+
+	token, err := GenerateToken(user.ID, user.Role)
+	if err != nil {
+		t.Fatalf("Failed to generate token: %v", err)
+	}
+	headers := map[string]string{"Authorization": "Bearer " + token}
+
+	// 2. Initial GET before any divination
+	w := performRequest(r, "GET", "/api/user/divination", nil, headers)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for initial GET divination, got %d", w.Code)
+	}
+	var getResp struct {
+		Message      string            `json:"message"`
+		AlreadyDrawn bool              `json:"already_drawn"`
+		Data         *DivinationRecord `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &getResp); err != nil {
+		t.Fatalf("Failed to unmarshal GET divination response: %v", err)
+	}
+	if getResp.AlreadyDrawn {
+		t.Errorf("Expected already_drawn=false before drawing, got true")
+	}
+	if getResp.Data != nil {
+		t.Errorf("Expected data=nil before drawing, got %+v", getResp.Data)
+	}
+
+	// 3. First POST to draw daily fortune
+	w = performRequest(r, "POST", "/api/user/divination", nil, headers)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for first POST divination, got %d", w.Code)
+	}
+	var postResp struct {
+		Message      string           `json:"message"`
+		AlreadyDrawn bool             `json:"already_drawn"`
+		Data         DivinationRecord `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &postResp); err != nil {
+		t.Fatalf("Failed to unmarshal POST divination response: %v", err)
+	}
+	if postResp.AlreadyDrawn {
+		t.Errorf("Expected already_drawn=false for first draw, got true")
+	}
+	if postResp.Data.Sign == "" || postResp.Data.RewardAmount <= 0 {
+		t.Errorf("Invalid divination record returned: %+v", postResp.Data)
+	}
+	firstRecordID := postResp.Data.ID
+
+	// 4. Repeat POST on same day should return already_drawn=true and same record
+	w = performRequest(r, "POST", "/api/user/divination", nil, headers)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for repeat POST divination, got %d", w.Code)
+	}
+	var repeatResp struct {
+		Message      string           `json:"message"`
+		AlreadyDrawn bool             `json:"already_drawn"`
+		Data         DivinationRecord `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &repeatResp); err != nil {
+		t.Fatalf("Failed to unmarshal repeat POST divination response: %v", err)
+	}
+	if !repeatResp.AlreadyDrawn {
+		t.Errorf("Expected already_drawn=true for repeat draw, got false")
+	}
+	if repeatResp.Data.ID != firstRecordID {
+		t.Errorf("Expected same record ID %d, got %d", firstRecordID, repeatResp.Data.ID)
+	}
+
+	// 5. GET after divination should return the drawn record
+	w = performRequest(r, "GET", "/api/user/divination", nil, headers)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for GET divination after drawing, got %d", w.Code)
+	}
+	var getAfterResp struct {
+		Message      string            `json:"message"`
+		AlreadyDrawn bool              `json:"already_drawn"`
+		Data         *DivinationRecord `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &getAfterResp); err != nil {
+		t.Fatalf("Failed to unmarshal GET after response: %v", err)
+	}
+	if !getAfterResp.AlreadyDrawn || getAfterResp.Data == nil || getAfterResp.Data.ID != firstRecordID {
+		t.Errorf("Expected already_drawn=true with matching record ID %d, got %+v", firstRecordID, getAfterResp)
+	}
+
+	// 6. Unauthorized access should fail
+	w = performRequest(r, "POST", "/api/user/divination", nil, nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("Expected 401 without auth, got %d", w.Code)
+	}
+}
+
+func TestDailyDivinationConcurrency(t *testing.T) {
+	setupTestDB(t)
+	r := setupRouter()
+
+	user := User{
+		ID:       "divination_concurrent_user",
+		Nickname: "DivinerConcurrent",
+		Password: "password",
+		Role:     "user",
+	}
+	if err := DB.Create(&user).Error; err != nil {
+		t.Fatalf("Failed to create user: %v", err)
+	}
+
+	token, err := GenerateToken(user.ID, user.Role)
+	if err != nil {
+		t.Fatalf("Failed to generate token: %v", err)
+	}
+	headers := map[string]string{"Authorization": "Bearer " + token}
+
+	const concurrency = 10
+	var wg sync.WaitGroup
+	errChan := make(chan error, concurrency)
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			w := performRequest(r, "POST", "/api/user/divination", nil, headers)
+			if w.Code != http.StatusOK {
+				errChan <- fmt.Errorf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
+				return
+			}
+			var resp struct {
+				Message      string           `json:"message"`
+				AlreadyDrawn bool             `json:"already_drawn"`
+				Data         DivinationRecord `json:"data"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				errChan <- fmt.Errorf("failed to unmarshal response: %v", err)
+				return
+			}
+			if resp.Data.UserID != user.ID {
+				errChan <- fmt.Errorf("unexpected user ID %s", resp.Data.UserID)
+				return
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	for err := range errChan {
+		t.Fatalf("Concurrent divination request failed: %v", err)
+	}
+
+	// Verify only exactly 1 record was persisted in DB
+	var count int64
+	DB.Model(&DivinationRecord{}).Where("user_id = ?", user.ID).Count(&count)
+	if count != 1 {
+		t.Fatalf("Expected exactly 1 divination record created, got %d", count)
+	}
+}
+
+func TestMonteCarloSimulation(t *testing.T) {
+	setupTestDB(t)
+	r := setupRouter()
+
+	// 1. Create a user and record initial database state
+	user := User{
+		ID:         "sim_user",
+		Nickname:   "SimulatorTester",
+		Password:   "password",
+		Role:       "user",
+		PitySCount: 15,
+		PityACount: 5,
+	}
+	if err := DB.Create(&user).Error; err != nil {
+		t.Fatalf("Failed to create user: %v", err)
+	}
+
+	token, err := GenerateToken(user.ID, user.Role)
+	if err != nil {
+		t.Fatalf("Failed to generate token: %v", err)
+	}
+	headers := map[string]string{"Authorization": "Bearer " + token}
+
+	var initialGachaRecordCount int64
+	DB.Model(&GachaRecord{}).Count(&initialGachaRecordCount)
+	var initialUserCharCount int64
+	DB.Model(&UserCharacter{}).Count(&initialUserCharCount)
+
+	// 2. Perform Monte Carlo simulation with 1000 pulls
+	simReq := map[string]int{"pulls": 1000}
+	w := performRequest(r, "POST", "/api/gacha/simulate", simReq, headers)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for /api/gacha/simulate, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var res SimulateResp
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatalf("Failed to unmarshal simulation response: %v", err)
+	}
+
+	// Verify counts and integrity
+	if res.TotalPulls != 1000 {
+		t.Errorf("Expected total_pulls=1000, got %d", res.TotalPulls)
+	}
+	if res.SCount+res.ACount+res.BCount != 1000 {
+		t.Errorf("Sum of S, A, B counts (%d + %d + %d = %d) != 1000",
+			res.SCount, res.ACount, res.BCount, res.SCount+res.ACount+res.BCount)
+	}
+	if res.UpCount+res.NonUpCount != res.SCount {
+		t.Errorf("Sum of UP (%d) and NonUp (%d) != SCount (%d)",
+			res.UpCount, res.NonUpCount, res.SCount)
+	}
+	if res.EmpiricalSRate <= 0.0 || res.EmpiricalSRate > 10.0 {
+		t.Errorf("Empirical S rate unrealistic: %f", res.EmpiricalSRate)
+	}
+	if res.EmpiricalARate <= 0.0 || res.EmpiricalARate > 30.0 {
+		t.Errorf("Empirical A rate unrealistic: %f", res.EmpiricalARate)
+	}
+	if res.LuckScore < 1 || res.LuckScore > 100 {
+		t.Errorf("Luck score out of range: %d", res.LuckScore)
+	}
+	if res.LuckLevel == "" {
+		t.Errorf("Luck level is empty")
+	}
+
+	// 3. Verify real DB state is 100% untouched
+	var freshUser User
+	if err := DB.Where("id = ?", user.ID).First(&freshUser).Error; err != nil {
+		t.Fatalf("Failed to reload user from DB: %v", err)
+	}
+	if freshUser.PitySCount != 15 || freshUser.PityACount != 5 {
+		t.Errorf("User pity counts mutated in DB! Expected (15, 5), got (%d, %d)",
+			freshUser.PitySCount, freshUser.PityACount)
+	}
+
+	var afterGachaRecordCount int64
+	DB.Model(&GachaRecord{}).Count(&afterGachaRecordCount)
+	if afterGachaRecordCount != initialGachaRecordCount {
+		t.Errorf("GachaRecord count mutated in DB! Expected %d, got %d",
+			initialGachaRecordCount, afterGachaRecordCount)
+	}
+
+	var afterUserCharCount int64
+	DB.Model(&UserCharacter{}).Count(&afterUserCharCount)
+	if afterUserCharCount != initialUserCharCount {
+		t.Errorf("UserCharacter count mutated in DB! Expected %d, got %d",
+			initialUserCharCount, afterUserCharCount)
+	}
+
+	// 4. Test boundary: pulls > 50000 should return 400 Bad Request
+	largeReq := map[string]int{"pulls": 60000}
+	wLarge := performRequest(r, "POST", "/api/gacha/simulate", largeReq, headers)
+	if wLarge.Code != http.StatusBadRequest {
+		t.Errorf("Expected 400 for pulls > 50000, got %d", wLarge.Code)
+	}
+
+	// 5. Test boundary: pulls <= 0 defaults to 1000 and succeeds
+	zeroReq := map[string]int{"pulls": 0}
+	wZero := performRequest(r, "POST", "/api/gacha/simulate", zeroReq, headers)
+	if wZero.Code != http.StatusOK {
+		t.Errorf("Expected 200 for pulls=0 (default 1000), got %d", wZero.Code)
+	}
+	var resZero SimulateResp
+	_ = json.Unmarshal(wZero.Body.Bytes(), &resZero)
+	if resZero.TotalPulls != 1000 {
+		t.Errorf("Expected default 1000 pulls, got %d", resZero.TotalPulls)
+	}
+}
+
+

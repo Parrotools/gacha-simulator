@@ -2,9 +2,12 @@ package main
 
 import (
 	"crypto/ed25519"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"github.com/golang-jwt/jwt/v5"
 	"log"
+	"os"
 	"time"
 )
 
@@ -12,12 +15,58 @@ var privateKey ed25519.PrivateKey
 var publicKey ed25519.PublicKey
 
 func init() {
+	loadOrGenerateKeys()
+}
+
+func loadOrGenerateKeys() {
+	privFile := "jwt_private.pem"
+	pubFile := "jwt_public.pem"
+
+	privPEM, errPriv := os.ReadFile(privFile)
+	pubPEM, errPub := os.ReadFile(pubFile)
+
+	if errPriv == nil && errPub == nil {
+		blockPriv, _ := pem.Decode(privPEM)
+		blockPub, _ := pem.Decode(pubPEM)
+		if blockPriv != nil && blockPub != nil {
+			parsedPriv, errParsePriv := x509.ParsePKCS8PrivateKey(blockPriv.Bytes)
+			parsedPub, errParsePub := x509.ParsePKIXPublicKey(blockPub.Bytes)
+			if errParsePriv == nil && errParsePub == nil {
+				if privK, ok := parsedPriv.(ed25519.PrivateKey); ok {
+					if pubK, ok2 := parsedPub.(ed25519.PublicKey); ok2 {
+						privateKey = privK
+						publicKey = pubK
+						return
+					}
+				}
+			}
+		}
+	}
+
 	pub, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		log.Fatalf("initialise ED25519 failed:%v", err)
 	}
 	publicKey = pub
 	privateKey = priv
+
+	privBytes, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err == nil {
+		block := &pem.Block{
+			Type:  "PRIVATE KEY",
+			Bytes: privBytes,
+		}
+		_ = os.WriteFile(privFile, pem.EncodeToMemory(block), 0600)
+	}
+
+	pubBytes, err := x509.MarshalPKIXPublicKey(pub)
+	if err == nil {
+		block := &pem.Block{
+			Type:  "PUBLIC KEY",
+			Bytes: pubBytes,
+		}
+		_ = os.WriteFile(pubFile, pem.EncodeToMemory(block), 0644)
+	}
 }
 
 type CustomClaims struct {

@@ -768,6 +768,40 @@
       text-align: center;
       box-shadow: 0 20px 40px rgba(0,0,0,0.6);
     }
+
+    /* Astral Divination & Sim Modals */
+    #divination-modal, #sim-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(4, 6, 14, 0.82);
+      backdrop-filter: blur(12px);
+      z-index: 10001;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #divination-modal.active, #sim-modal.active {
+      display: flex;
+    }
+
+    .astral-modal-card {
+      background: #0f1424;
+      border: 1px solid var(--border-gold);
+      border-radius: 16px;
+      padding: 2rem;
+      max-width: 520px;
+      width: 92%;
+      text-align: center;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.8), 0 0 25px var(--gold-glow);
+      position: relative;
+      animation: modalFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes modalFadeIn {
+      from { transform: scale(0.92); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
   </style>
 </head>
 <body>
@@ -785,6 +819,9 @@
         <span class="sse-dot" id="sse-dot"></span>
         <span id="sse-label">实时连接中...</span>
       </div>
+      <button class="btn-divination" id="btn-divination" onclick="handleDivinationClick()" style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(56, 189, 248, 0.2)); border: 1px solid var(--border-gold); color: var(--gold-light); border-radius: 9999px; padding: 0.35rem 0.9rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; transition: all 0.25s;">
+        ✨ 每日星占
+      </button>
       <div class="user-pill" id="user-display">
         <span>游客 (未登录)</span>
       </div>
@@ -834,6 +871,9 @@
             </button>
             <button class="btn-summon tenx" onclick="performDraw(10)">
               <span>★</span> 十连祈愿 × 10
+            </button>
+            <button class="btn-summon sim" id="btn-simulate" onclick="openSimModal()" style="background: linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(168, 85, 247, 0.25)); border: 1px solid var(--border-cyan); color: var(--astral-cyan);">
+              <span>🎲</span> 星轨概率测算 (蒙特卡洛模拟)
             </button>
           </div>
 
@@ -1142,6 +1182,109 @@
       <div style="display: flex; gap: 1rem; justify-content: center;">
         <button class="btn-action btn-secondary" style="width: auto; padding: 0.6rem 1.5rem; margin-top: 0;" onclick="closeConfirmModal()">取消</button>
         <button class="btn-action btn-danger" style="width: auto; padding: 0.6rem 1.5rem; margin-top: 0;" id="confirm-modal-ok-btn">确认清空</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Daily Divination Modal -->
+  <div id="divination-modal">
+    <div class="astral-modal-card">
+      <div style="font-size: 0.75rem; letter-spacing: 0.15em; color: var(--astral-cyan); font-weight: 700; margin-bottom: 0.5rem;">
+        ✦ ASTRAL DAILY DIVINATION ✦
+      </div>
+      <h2 id="divination-sign" style="font-size: 1.6rem; color: var(--gold-light); margin-bottom: 0.75rem; text-shadow: 0 0 16px var(--gold-glow);">
+        大吉 · 星神注视
+      </h2>
+      <div id="divination-status-tag" style="display: inline-block; padding: 0.2rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; background: rgba(56, 189, 248, 0.15); border: 1px solid var(--border-cyan); color: var(--astral-cyan); margin-bottom: 1.25rem;">
+        今日初次占卜
+      </div>
+      <p id="divination-desc" style="font-size: 0.92rem; color: #cbd5e1; line-height: 1.6; margin-bottom: 1.5rem; background: rgba(15, 23, 42, 0.6); padding: 1rem; border-radius: 10px; border: 1px solid var(--border-glass);">
+        星海泛起璀璨回音，今日十连必有金光闪烁！
+      </p>
+      <div id="divination-reward" style="font-size: 1.05rem; font-weight: 700; color: #34d399; margin-bottom: 1.5rem; text-shadow: 0 0 10px rgba(52, 211, 153, 0.3);">
+        ✨ 获得星穹赠礼：+160 星琼
+      </div>
+      <button class="btn-action btn-gold" style="width: auto; padding: 0.6rem 2rem; margin: 0 auto;" onclick="closeDivinationModal()">
+        领悟神谕
+      </button>
+    </div>
+  </div>
+
+  <!-- Monte Carlo Simulation Modal -->
+  <div id="sim-modal">
+    <div class="astral-modal-card" style="max-width: 640px; text-align: left;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <div>
+          <div style="font-size: 0.75rem; letter-spacing: 0.15em; color: var(--astral-cyan); font-weight: 700;">
+            ✦ MONTE CARLO GACHA SIMULATOR ✦
+          </div>
+          <h2 style="font-size: 1.35rem; color: var(--gold-light); margin-top: 0.25rem;">
+            星轨概率测算 (蒙特卡洛模拟)
+          </h2>
+        </div>
+        <button style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;" onclick="closeSimModal()">×</button>
+      </div>
+
+      <div style="background: rgba(15, 23, 42, 0.5); padding: 1rem; border-radius: 10px; border: 1px solid var(--border-glass); margin-bottom: 1.25rem;">
+        <label style="font-size: 0.85rem; color: var(--text-muted); display: block; margin-bottom: 0.5rem;">
+          测算跃迁次数 (Pulls): <span id="sim-pulls-val" style="color: var(--gold-light); font-weight: 700;">1000</span> 抽
+        </label>
+        <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.75rem;">
+          <input type="range" id="sim-pulls-slider" min="100" max="10000" step="100" value="1000" style="flex: 1;" oninput="updateSimPullsInput(this.value)">
+          <input type="number" id="sim-pulls-input" min="1" max="50000" value="1000" style="width: 90px; padding: 0.4rem; background: rgba(0,0,0,0.4); border: 1px solid var(--border-glass); border-radius: 6px; color: #fff; text-align: center;" oninput="updateSimPullsSlider(this.value)">
+        </div>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <button type="button" class="btn-action btn-secondary" style="width: auto; padding: 0.25rem 0.65rem; font-size: 0.75rem; margin: 0;" onclick="setSimPulls(100)">100抽</button>
+          <button type="button" class="btn-action btn-secondary" style="width: auto; padding: 0.25rem 0.65rem; font-size: 0.75rem; margin: 0;" onclick="setSimPulls(500)">500抽</button>
+          <button type="button" class="btn-action btn-secondary" style="width: auto; padding: 0.25rem 0.65rem; font-size: 0.75rem; margin: 0;" onclick="setSimPulls(1000)">1000抽</button>
+          <button type="button" class="btn-action btn-secondary" style="width: auto; padding: 0.25rem 0.65rem; font-size: 0.75rem; margin: 0;" onclick="setSimPulls(5000)">5000抽</button>
+          <button type="button" class="btn-action btn-secondary" style="width: auto; padding: 0.25rem 0.65rem; font-size: 0.75rem; margin: 0;" onclick="setSimPulls(10000)">10000抽</button>
+        </div>
+      </div>
+
+      <div style="text-align: center; margin-bottom: 1.25rem;">
+        <button id="btn-run-sim" class="btn-action btn-gold" style="width: 100%; padding: 0.75rem; font-size: 1rem; margin: 0;" onclick="runMonteCarloSim()">
+          🚀 开始蒙特卡洛极速测算
+        </button>
+      </div>
+
+      <!-- Simulation Result Card -->
+      <div id="sim-result-card" style="display: none; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-gold); border-radius: 12px; padding: 1.25rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.75rem; margin-bottom: 1rem;">
+          <div>
+            <span style="font-size: 0.8rem; color: var(--text-muted);">测算样本</span>
+            <div style="font-size: 1.1rem; font-weight: 700; color: #fff;" id="sim-res-total">1,000 抽</div>
+          </div>
+          <div style="text-align: right;">
+            <span style="font-size: 0.8rem; color: var(--text-muted);">欧皇指数评分</span>
+            <div style="font-size: 1.25rem; font-weight: 800; color: var(--gold-light);" id="sim-res-luck-score">
+              85 <span style="font-size: 0.85rem; padding: 0.2rem 0.5rem; border-radius: 4px; background: rgba(245, 158, 11, 0.2);" id="sim-res-luck-level">【欧气满满】</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-bottom: 1rem; text-align: center;">
+          <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid var(--border-gold); border-radius: 8px; padding: 0.75rem;">
+            <div style="font-size: 0.75rem; color: var(--gold-light);">S 级金光</div>
+            <div style="font-size: 1.1rem; font-weight: 700; color: var(--gold-light); margin: 0.2rem 0;" id="sim-res-s-count">16</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);" id="sim-res-s-rate">出率: 1.60%</div>
+          </div>
+          <div style="background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 8px; padding: 0.75rem;">
+            <div style="font-size: 0.75rem; color: var(--twilight-violet);">A 级紫光</div>
+            <div style="font-size: 1.1rem; font-weight: 700; color: var(--twilight-violet); margin: 0.2rem 0;" id="sim-res-a-count">128</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);" id="sim-res-a-rate">出率: 12.80%</div>
+          </div>
+          <div style="background: rgba(56, 189, 248, 0.1); border: 1px solid var(--border-cyan); border-radius: 8px; padding: 0.75rem;">
+            <div style="font-size: 0.75rem; color: var(--astral-cyan);">B 级蓝光</div>
+            <div style="font-size: 1.1rem; font-weight: 700; color: var(--astral-cyan); margin: 0.2rem 0;" id="sim-res-b-count">856</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);" id="sim-res-b-rate">占比: 85.60%</div>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-around; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 0.75rem; font-size: 0.85rem;">
+          <div>平均出金间隔: <strong style="color: var(--gold-light);" id="sim-res-avg-pity">62.5 抽</strong></div>
+          <div>UP 角色不歪率: <strong style="color: #34d399;" id="sim-res-up-rate">56.25%</strong> (UP <span id="sim-res-up-count">9</span> / 歪 <span id="sim-res-nonup-count">7</span>)</div>
+        </div>
       </div>
     </div>
   </div>
@@ -1888,6 +2031,100 @@
         await Promise.all([loadAdminCharacters(), loadPoolInfo()]);
       } else {
         showToast("加载失败", data.error || "未知异常", "error");
+      }
+    }
+
+    // Astral Divination functions
+    async function handleDivinationClick() {
+      if (!authToken) {
+        return showToast("未登录", "请先登录或注册账号以开启每日星占！", "error");
+      }
+      const { status, data } = await apiRequest("/api/user/divination", "POST", {});
+      if (status !== 200) {
+        return showToast("星占失败", data.error || "未知异常", "error");
+      }
+      
+      const rec = data.data;
+      if (!rec) return;
+
+      document.getElementById("divination-sign").textContent = rec.sign || "大吉·星神注视";
+      document.getElementById("divination-status-tag").textContent = data.already_drawn ? "今日已签" : "今日初次占卜";
+      document.getElementById("divination-desc").textContent = rec.description || "星海泛起璀璨回音...";
+      document.getElementById("divination-reward").textContent = `✨ 获得星穹赠礼：+${rec.reward_amount} 星琼 (Stellar Jade)`;
+      
+      const modal = document.getElementById("divination-modal");
+      if (modal) modal.classList.add("active");
+
+      showToast("✦ 今日星占", `${rec.sign} (+${rec.reward_amount} 星琼) - ${rec.description}`, "success");
+    }
+
+    function closeDivinationModal() {
+      const modal = document.getElementById("divination-modal");
+      if (modal) modal.classList.remove("active");
+    }
+
+    // Monte Carlo Simulator functions
+    function openSimModal() {
+      const modal = document.getElementById("sim-modal");
+      if (modal) modal.classList.add("active");
+    }
+
+    function closeSimModal() {
+      const modal = document.getElementById("sim-modal");
+      if (modal) modal.classList.remove("active");
+    }
+
+    function setSimPulls(n) {
+      document.getElementById("sim-pulls-input").value = n;
+      document.getElementById("sim-pulls-slider").value = Math.min(n, 10000);
+      document.getElementById("sim-pulls-val").textContent = n;
+    }
+
+    function updateSimPullsInput(val) {
+      document.getElementById("sim-pulls-input").value = val;
+      document.getElementById("sim-pulls-val").textContent = val;
+    }
+
+    function updateSimPullsSlider(val) {
+      document.getElementById("sim-pulls-slider").value = Math.min(parseInt(val) || 1000, 10000);
+      document.getElementById("sim-pulls-val").textContent = val;
+    }
+
+    async function runMonteCarloSim() {
+      if (!authToken) {
+        return showToast("未登录", "请先登录账号后再开启测算！", "error");
+      }
+      const pulls = parseInt(document.getElementById("sim-pulls-input").value) || 1000;
+      const btn = document.getElementById("btn-run-sim");
+      btn.disabled = true;
+      btn.textContent = "⏳ 蒙特卡洛高速测算中...";
+
+      try {
+        const { status, data } = await apiRequest("/api/gacha/simulate", "POST", { pulls });
+        if (status !== 200) {
+          showToast("测算失败", data.error || "未知异常", "error");
+          return;
+        }
+
+        document.getElementById("sim-res-total").textContent = data.total_pulls.toLocaleString() + " 抽";
+        document.getElementById("sim-res-luck-score").innerHTML = `${data.luck_score} <span style="font-size: 0.85rem; padding: 0.2rem 0.5rem; border-radius: 4px; background: rgba(245, 158, 11, 0.2);" id="sim-res-luck-level">【${data.luck_level}】</span>`;
+        document.getElementById("sim-res-s-count").textContent = data.s_count;
+        document.getElementById("sim-res-s-rate").textContent = `出率: ${data.empirical_s_rate.toFixed(2)}%`;
+        document.getElementById("sim-res-a-count").textContent = data.a_count;
+        document.getElementById("sim-res-a-rate").textContent = `出率: ${data.empirical_a_rate.toFixed(2)}%`;
+        document.getElementById("sim-res-b-count").textContent = data.b_count;
+        const bRate = (100 - data.empirical_s_rate - data.empirical_a_rate).toFixed(2);
+        document.getElementById("sim-res-b-rate").textContent = `占比: ${bRate}%`;
+        document.getElementById("sim-res-avg-pity").textContent = (data.avg_pulls_per_s > 0 ? data.avg_pulls_per_s.toFixed(1) : "0") + " 抽";
+        document.getElementById("sim-res-up-rate").textContent = data.up_rate.toFixed(2) + "%";
+        document.getElementById("sim-res-up-count").textContent = data.up_count;
+        document.getElementById("sim-res-nonup-count").textContent = data.non_up_count;
+
+        document.getElementById("sim-result-card").style.display = "block";
+        showToast("测算完成", `欧皇指数：${data.luck_score} 分【${data.luck_level}】，S级综合出率 ${data.empirical_s_rate}%`, "success");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "🚀 开始蒙特卡洛极速测算";
       }
     }
 

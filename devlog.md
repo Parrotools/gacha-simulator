@@ -38,6 +38,9 @@
 8. [Phase 7: 工程化文档规范与交付标准化（API Documentation & Delivery）](#8-phase-7-工程化文档规范与交付标准化api-documentation--delivery)
    - [7.1 工业级 RESTful API 规范全覆盖](#71-工业级-restful-api-规范全覆盖)
    - [7.2 全流程交付物清单与闭环检验](#72-全流程交付物清单与闭环检验)
+9. [Phase 8: gRPC 流式热重载架构、SSE 实时事件总线与赛博朋克 Web 可视化交互终端](#phase-8-grpc-流式热重载架构sse-实时事件总线与赛博朋克-web-可视化交互终端)
+10. [Phase 9: 服务解耦架构、Ed25519 非对称免密验签与交互式终端 CLI](#9-phase-9-服务解耦架构ed25519-非对称免密验签与交互式终端-clistage-41--stage-6)
+11. [Phase 10: 蒙特卡洛抽卡测算引擎与星穹每日星占系统落地](#10-phase-10-蒙特卡洛抽卡测算引擎与星穹每日星占系统落地-monte-carlo-simulator--daily-astral-divination)
 
 ---
 
@@ -873,4 +876,222 @@ ok      gacha-simulator 1.879s
 
 ---
 *DevLog Phase 8 归档完毕。*
+
+---
+
+## 9. Phase 9: 服务解耦架构、Ed25519 非对称免密验签与交互式终端 CLI（Stage 4.1 & Stage 6）
+
+```mermaid
+flowchart TD
+    subgraph ClientStage["Stage 6 客户端交互层"]
+        CLI["Terminal CLI 交互终端 (cmd/cli/main.go)\n[REPL 菜单 + 直接命令行指令 + ANSI 全彩出金渲染]"]
+        WebPortal["Cyberpunk Web 界面 (web/index.html)"]
+    end
+
+    subgraph ManagementNode["Stage 4.1 Management Server (:8080)"]
+        AuthSvc["账号认证中心 (注册/密码/邮箱/OAuth)"]
+        AdminSvc["卡池调控后台 (角色入池/加载预设/修改概率)"]
+        GRPCBroker["gRPC ConfigService Server (:50051)"]
+        PrivKeyFile["jwt_private.pem (Ed25519 私钥仅管理端持有)"]
+        AuthSvc -->|EdDSA 签名颁发 Token| PrivKeyFile
+        AdminSvc -->|配置变更广播| GRPCBroker
+    end
+
+    subgraph GameNode["Stage 4.1 Game Server (:8081)"]
+        GachaEngine["抽卡运算内核 (保底状态机 / 命座归集)"]
+        InventoryQuery["背包与出金战报分析"]
+        GRPCListener["gRPC Config Client (常驻流监听)"]
+        PubKeyFile["jwt_public.pem (Ed25519 公钥本地只读验签)"]
+        GachaEngine -->|本地微秒级免密验签| PubKeyFile
+        GRPCListener -->|原子指针无锁更新快照| GachaEngine
+    end
+
+    CLI -->|1. 注册 / 登录换取 Token| AuthSvc
+    CLI -->|2. 携带 Token 发起单抽/十连抽| GachaEngine
+    WebPortal --> ManagementNode
+    WebPortal --> GameNode
+    GRPCBroker -.->|长流实时热同步配置| GRPCListener
+```
+
+---
+
+### 9.1 架构解耦演进与职责边界划分（Stage 4.1）
+
+在单体架构阶段，抽卡模拟器虽然具备了完整的鉴权、保底、热更与广播能力，但随着系统演进，单体部署在面对大规模并发场景时暴露出两类天然劣势：
+1. **关注点交织（Coupled Concerns）**：用户认证、OAuth 重定向与后台运营操作，属于低频/强一致性事务；而祈愿抽卡与背包流水，属于超高频/低延迟密集计算。将两者混部在同一路由引擎中，不利于资源的水平弹性扩缩容；
+2. **故障隔离（Fault Isolation）**：若管理后台因批量装载或第三方 OAuth 慢请求发生阻塞，容易波及正在进行的高频抽卡请求。
+
+为此，我们在 Phase 9 彻底推动了服务解耦：
+- **Management Server（管理服务器）**：
+  - 核心职责：用户注册、密码登录、邮箱验证码登录、GitHub OAuth 鉴权回调、个人信息维护；
+  - 运营职责：管理员角色创建、角色推入卡池、批量预设导入、全局卡池概率动态调控；
+  - 集群服务：启动并监听 gRPC 配置中心服务（`:50051`），管理卡池参数发布。
+- **Game Server（游戏服务器）**：
+  - 核心职责：公开卡池概率与当期 UP 角色展示（`GET /api/pool/info`）；
+  - 核心玩法：单抽 / 十连抽概率判定与保底状态推进（`POST /api/gacha/draw`）；
+  - 数据统计：用户角色仓库背包（`GET /api/gacha/inventory`）、抽卡历史流水（`GET /api/gacha/history`）、S 档出金与歪卡统计（`GET /api/gacha/stats`）、清空历史重置保底（`DELETE /api/gacha/history`）；
+  - 集群联动：作为 gRPC 客户端连接 Management Server，保持长连接监听并实施配置热重载。
+- **Combined Server（单体联合模式）**：
+  - 保留合并挂载全部路由的启动能力，确保对既有测试用例、单机快速验证与纯本地部署的 100% 零侵入向后兼容。
+
+通过引入标准命令行参数 `--mode`（`all`, `management`, `game`）以及 `--port`，运维人员可根据实际拓扑轻松调度实例。
+
+---
+
+### 9.2 深度探讨：解耦场景下的 JWT 鉴权困局与 Ed25519 非对称密码学破局
+
+在完成服务解耦时，`抽卡模拟器.pdf` 明确提出了一个非常经典且极具深度的架构思考：
+> *"ps: 如果是jwt的话，这个时候game server怎么解析token呢？复制⼀遍key吗，还有什么⽅法吗，思考⼀下"*
+
+为了给出最优雅且符合工业级标准的答案，我们对分布式鉴权体系进行了全面的技术对比与密码学剖析：
+
+#### 方案深度对比矩阵：
+
+| 方案策略 | 实现机制 | 优势 | 严重缺陷 / 隐患 |
+| :--- | :--- | :--- | :--- |
+| **方案 1：共享对称密钥（Shared Secret / HMAC-SHA256）** | 将对称密钥 `secret_key` 复制给 Game Server，双方使用相同的 key 进行签名与解密 | 极简、改动量小 | **违背最小权限原则（PoLP）**：Game Server 掌握了签名私钥，获得了任意伪造管理员或任意玩家 Token 的特权；一旦 Game 节点沦陷，全系统鉴权堤坝全面失守。 |
+| **方案 2：集中式鉴权查询（Token Introspection / RPC Token Verify）** | Game Server 收到请求后，通过 RPC/HTTP 远程调用 Management Server 或 Redis 校验 Token | 权限集中管控，支持即时吊销 | **严重性能瓶颈与单点故障（SPOF）**：抽卡是超高频操作，若每抽都需要向认证中心发起一次 RPC 网络往返，极大地增加了抽卡延迟（RTT），且容易引发网络风暴击垮认证中心。 |
+| **方案 3：Ed25519 非对称密码学（Asymmetric EdDSA - 本系统采用方案）** | **私钥（Private Key）签署，公钥（Public Key）验签**。Management Server 独占私钥，Game Server 仅持有公钥 | **零 RPC 延迟、本地微秒级验签、天然权限物理隔离** | 需要管理公私钥对的生成与安全分发机制。 |
+
+#### 本系统落地设计：Ed25519 非对称持久化密钥架构 (`jwt.go`)
+1. **高安全性非对称体制**：
+   - 使用基于 Curve25519 的 Ed25519 (EdDSA) 数字签名算法；
+   - 签名生成（`GenerateToken`）必须使用私钥，仅能在拥有绝对特权的 Management Server 执行；
+   - 签名校验（`ParseToken`）仅需要公钥，Game Server 仅需持有一份只读的 `jwt_public.pem`，即可在本地微秒级完成签名密码学证明与 JWT Claims 解析。
+2. **密钥持久化与自愈机制 (`loadOrGenerateKeys`)**：
+   - 启动时自动检查本地是否存在 `jwt_private.pem` 与 `jwt_public.pem`；
+   - 若存在则通过 `x509.ParsePKCS8PrivateKey` 与 `x509.ParsePKIXPublicKey` 加载复用；
+   - 若不存在则自动生成高强度密钥对，并以标准化 PEM 编码安全落盘（私钥权限 `0600`，公钥权限 `0644`）；
+   - 在只读沙箱等异常环境下自适应优雅回退到内存生成，保障测试与不可写环境永不崩溃。
+
+---
+
+### 9.3 终端极客神器：交互式 CLI 客户端落地（Stage 6）
+
+为了让抽卡模拟器不仅能通过网页操作，更能成为终端爱好者的极客利器，我们在 `cmd/cli/main.go` 中从零构建了全功能纯 Go 命令行客户端：
+
+#### 核心功能亮点：
+1. **纯标准库打造，零外部依赖**：
+   - 仅依赖 `net/http`, `encoding/json`, `flag`, `os`, `bufio`, `strings`, `sort` 等标准库组件，极速编译，生成单体轻量二进制；
+2. **高保真 ANSI 阶梯品质渲染**：
+   - **S 级 / 传奇金色 (`\033[1;33m`)**：`★ S-RANK ★`，若命中当期限定 UP 额外标注 `(UP!)`；
+   - **A 级 / 尊贵紫罗兰 (`\033[1;35m`)**：`[◆ A-RANK ◆]`，十连保底视觉强化；
+   - **B 级 / 离子青空 (`\033[1;36m`)**：`[· B-RANK ·]`，常驻武器轻量呈现；
+   - **出金首获标识**：初次抽取到的角色自动亮起绿色 `[NEW! 首次获得]` 高光标签；
+3. **交互式 REPL 菜单模式**：
+   - 启动自动打印酷炫 Astral 终端 Banner 与状态总览：实时展示当前登录用户、S 保底抽数（如 `42/80`）、A 保底抽数（如 `4/10`）以及后端连接节点；
+   - 提供 10 项清晰操作菜单：登录、注册、查池、单抽、十连抽、查看背包（支持按品质降序与命座计算展示）、出金战报统计（计算平均出金抽数与歪卡判定）、抽卡流水翻页、清空历史（带二次确认防误删）、登出；
+4. **非交互式命令行直接执行模式 (`--cmd`)**：
+   - 支持自动化脚本调用：例如 `./gacha-cli --cmd draw10`、`./gacha-cli --cmd inventory`、`./gacha-cli --cmd stats`；
+5. **本地会话凭证持久化与复用**：
+   - 成功登录后将 Token 写入本地隐藏凭证文件 `.gacha_cli_token`；
+   - 后续打开 CLI 或执行命令时自动加载并调用 `/api/user/me` 激活会话，实现无感免密直连。
+
+---
+
+### 9.4 自动化测试矩阵扩充与全量验证
+
+在 `api_test.go` 中新增了两大关键系统集成测试用例：
+1. **`TestServerDecoupling`**：
+   - 针对 `setupManagementEngine()` 与 `setupGameEngine()` 两个独立路由实例分别进行隔离性探针测试；
+   - 验证 Management Server 严密拦截游戏端点，访问 `/api/pool/info` 和 `/api/gacha/draw` 均返回 `404 Not Found`；
+   - 验证 Game Server 严密拦截认证与管理端点，访问 `/api/register`、`/api/login` 和 `/api/user/me` 均返回 `404 Not Found`；
+   - 模拟真实生产全链路：用户与 Admin 在 Management Server 完成注册与活动卡池布设，携带签发的 JWT 跨服务访问 Game Server，完美通过本地 Ed25519 鉴权并成功执行抽卡与背包查询；
+2. **`TestEd25519KeyPersistenceAndValidation`**：
+   - 验证 PEM 格式磁盘密钥的生成与加载；
+   - 模拟 Game Server 独立进程冷启动重载公私钥后，对 Management Server 历史颁发 Token 的验签与 Claims 解包测试，验证 100% 密钥一致性。
+
+#### 自动化测试执行实录：
+```bash
+$ go test -v -run "TestServerDecoupling|TestEd25519KeyPersistenceAndValidation" .
+=== RUN   TestServerDecoupling
+[GIN] 2026/10/08 - 01:55:47 | 404 |     42ns |                 | GET      "/api/pool/info"
+[GIN] 2026/10/08 - 01:55:47 | 404 |     42ns |                 | POST     "/api/gacha/draw"
+[GIN] 2026/10/08 - 01:55:47 | 404 |     41ns |                 | POST     "/api/register"
+[GIN] 2026/10/08 - 01:55:47 | 404 |     42ns |                 | POST     "/api/login"
+[GIN] 2026/10/08 - 01:55:47 | 404 |     41ns |                 | GET      "/api/user/me"
+[GIN] 2026/10/08 - 01:55:47 | 200 |  45.45ms |                 | POST     "/api/register"
+[GIN] 2026/10/08 - 01:55:47 | 200 |  44.48ms |                 | POST     "/api/login"
+[GIN] 2026/10/08 - 01:55:47 | 200 | 601.416µs |                 | POST     "/api/admin/character"
+[GIN] 2026/10/08 - 01:55:47 | 200 | 386.75µs |                 | GET      "/api/pool/info"
+[GIN] 2026/10/08 - 01:55:47 | 200 | 499.625µs |                 | POST     "/api/gacha/draw"
+[GIN] 2026/10/08 - 01:55:47 | 200 |     93µs |                 | GET      "/api/gacha/inventory"
+[GIN] 2026/10/08 - 01:55:47 | 200 | 52.292µs |                 | GET      "/api/user/me"
+--- PASS: TestServerDecoupling (0.20s)
+=== RUN   TestEd25519KeyPersistenceAndValidation
+--- PASS: TestEd25519KeyPersistenceAndValidation (0.00s)
+PASS
+ok      gacha-simulator 1.048s
+```
+
+---
+*DevLog Phase 9 归档完毕。抽卡模拟器 Stage 1 至 Stage 6 全部核心与拓展需求均已高质量完美落地！*
+
+---
+
+## 10. Phase 10: 蒙特卡洛抽卡测算引擎与星穹每日星占系统落地 (Monte Carlo Simulator & Daily Astral Divination)
+
+为了进一步提升系统的可玩性、数据分析能力与沉浸感，我们在 Phase 10 引入了**“蒙特卡洛抽卡极速测算”**（Monte Carlo Gacha Simulator）与**“星穹每日星占”**（Daily Astral Divination）两大全新玩法系统，并在后端 HTTP API、CLI 终端以及 Web 前端实现了三位一体的全端覆盖。
+
+### 10.1 蒙特卡洛抽卡测算算法设计与零数据库污染机制 (`simulate.go`)
+
+在真实的概率算法验证与用户决策场景中，玩家常常希望知道“我准备了 1000 抽，能出几个金？大概率歪不歪？现在的保底配置是不是欧皇体验？”。如果每次都通过真实数据库事务模拟抽取 1,000 ~ 10,000 抽，将对 SQLite 磁盘 I/O 造成极其严重的负担，且会污染用户的真实保底与背包数据。
+
+为此，我们设计了完全运行在内存中的蒙特卡洛纯函数仿真引擎：
+1. **纯内存无状态仿真**：
+   - 提取 `GlobalConfigAtomic.Load()` 瞬时快照，获取软保底起始点（`SoftPityStart`）、每抽增量（`SoftPityInc`）、硬保底上限（`HardPityS`/`HardPityA`）以及 50% UP 命中机制；
+   - 在独立的局部变量中追踪仿真保底指针 `simPityS` 与 `simPityA`；
+   - 绝不触碰任何数据库事务（Zero DB Mutation），真实用户的数据库保底与持有角色完全不受任何影响；
+2. **多维统计指标计算**：
+   - **综合出率与经验频次**：记录 $S$、$A$、$B$ 各档位命中次数与百分比；
+   - **平均出金间隔**：$\frac{总抽数}{S档出现次数}$，直观展示出金期望；
+   - **UP 角色不歪率**：统计 50% 独立掷骰的胜率表现；
+   - **欧皇指数算法（Luck Score）**：以标准出率 1.6% 与 UP 率 50% 为理论基准，设计综合加权评分公式：
+     $$LuckScore = \text{clamp}(50 + (Rate_S - 1.6) \times 15 + (Rate_{UP} - 50) \times 0.5, 1, 100)$$
+     划分【天选欧皇】、【欧气满满】、【寻常修士】、【非气微显】、【终极非酋】五个层级。
+3. **接口弹性与边界防御**：
+   - 默认模拟 1,000 抽，单次上限防护 50,000 抽（超过则返回 400 Bad Request），防止恶意超大请求引发 CPU 饥饿。
+
+---
+
+### 10.2 每日星穹签到与占卜系统设计 (`divination.go`, `model.go`)
+
+为了增加沉浸式科幻仪式感与每日留存粘性，开发了星穹占卜签到系统：
+1. **数据模型 (`DivinationRecord`)**：
+   - 包含主键 `ID`、用户标识 `UserID`、日期 `Date`（格式 `YYYY-MM-DD`，带复合索引）、占卜星象 `Sign`、命途神谕 `Description`、星琼奖励 `RewardAmount` 及时间戳；
+2. **防重复占卜与幂等设计**：
+   - 用户每日首次请求 `POST /api/user/divination` 时，从占卜池中随机抽取宇宙神谕（如“大吉·星神注视”、“中吉·跃迁顺风”等）并存入数据库，返回奖励星琼；
+   - 同一自然日内的重复调用（`POST` 或 `GET`）均返回幂等结果（`already_drawn: true`），保持结果一致并不再重复叠加奖励。
+
+---
+
+### 10.3 全端体验打通：Web 端与 CLI 终端全面升级
+
+1. **Web 现代化交互界面 (`web/index.html`)**：
+   - **顶部导航**：新增高亮星穹粒子按钮 `✨ 每日星占`，点击即可抽取或查看今日神谕，并弹出宇宙星云质感的占卜卡片；
+   - **控制面板**：新增 `🎲 星轨概率测算 (蒙特卡洛模拟)` 按钮；
+   - **交互弹窗 (`#sim-modal`)**：支持滑动条与快捷按钮（100/500/1000/5000/10000 抽）自由调节，一键极速测算并以金、紫、蓝三色仪表盘展示出金分布与欧皇指数评分徽章。
+2. **极客 CLI 终端支持 (`cmd/cli/main.go`)**：
+   - 交互式菜单新增 `11. 星穹每日占卜` 与 `12. 蒙特卡洛抽卡测算`；
+   - 命令行直达指令支持 `./gacha-cli --cmd divination` 与 `./gacha-cli --cmd sim --pulls 5000`；
+   - 使用金黄与青空 ANSI 编码高亮打印神谕与测算 ASCII 报表。
+
+---
+
+### 10.4 自动化单元与集成测试验证 (`api_test.go`)
+
+在 `api_test.go` 中新增两个专项自动化测试用例：
+1. `TestDailyDivination`：
+   - 验证首次占卜成功派发奖励；
+   - 验证同日重复调用返回 `already_drawn: true` 与相同的记录 ID；
+   - 验证未登录请求严格返回 `401 Unauthorized`。
+2. `TestMonteCarloSimulation`：
+   - 验证 1000 抽测算总数、品质分布与出率指标守恒（$S + A + B = Total$, $UP + NonUP = S$）；
+   - **核心不变性证明**：断言测算前后，数据库中真实用户的 `PitySCount`、`PityACount`、`GachaRecord` 数量与角色背包记录完全未被改动（100% 数据库只读隔离）；
+   - 验证超出 50,000 抽边界保护返回 `400 Bad Request`，非正数默认平滑回退至 1000 抽。
+
+---
+*DevLog Phase 10 归档完毕。蒙特卡洛抽卡测算与每日星占系统已成功闭环上线！*
+
+
 

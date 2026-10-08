@@ -20,6 +20,8 @@
   - [2.7 获取当前登录用户信息 (GET /api/user/me)](#27-获取当前登录用户信息-get-apiuserme)
   - [2.8 修改个人资料 (PUT /api/user/profile)](#28-修改个人资料-put-apiuserprofile)
   - [2.9 退出登录 (POST /api/user/logout)](#29-退出登录-post-apiuserlogout)
+  - [2.10 每日星穹占卜 (POST /api/user/divination)](#210-每日星穹占卜-post-apiuserdivination)
+  - [2.11 查询今日占卜结果 (GET /api/user/divination)](#211-查询今日占卜结果-get-apiuserdivination)
 - [3. 抽卡与玩法模块 (Gacha & Gameplay Module)](#3-抽卡与玩法模块-gacha--gameplay-module)
   - [3.1 获取卡池与概率配置 (GET /api/pool/info)](#31-获取卡池与概率配置-get-apipoolinfo)
   - [3.2 抽卡 (单抽 / 十连抽) (POST /api/gacha/draw)](#32-抽卡-单抽--十连抽-post-apigachadraw)
@@ -28,6 +30,7 @@
   - [3.5 S 档出金统计与歪卡分析 (GET /api/gacha/stats)](#35-s-档出金统计与歪卡分析-get-apigachastats)
   - [3.6 清空历史背包并重置保底 (DELETE /api/gacha/history)](#36-清空历史背包并重置保底-delete-apigachahistory)
   - [3.7 实时事件通知流 (GET /api/notifications)](#37-实时事件通知流-get-apinotifications)
+  - [3.8 蒙特卡洛抽卡极速测算 (POST /api/gacha/simulate)](#38-蒙特卡洛抽卡极速测算-post-apigachasimulate)
 - [4. 管理员后台模块 (Admin Module)](#4-管理员后台模块-admin-module)
   - [4.1 创建新角色 (POST /api/admin/character)](#41-创建新角色-post-apiadmincharacter)
   - [4.2 推送角色入卡池 (POST /api/admin/pool/push)](#42-推送角色入卡池-post-apiadminpoolpush)
@@ -35,6 +38,15 @@
   - [4.4 动态热更新卡池配置 (PUT /api/admin/pool/config)](#44-动态热更新卡池配置-put-apiadminpoolconfig)
 - [5. 数据模型定义 (Data Models)](#5-数据模型定义-data-models)
 - [6. gRPC 配置流式分发服务 (gRPC Config Streaming Service)](#6-grpc-配置流式分发服务-grpc-config-streaming-service)
+- [7. 服务解耦架构与运行模式 (Architecture Decoupling & Server Run Modes)](#7-服务解耦架构与运行模式-architecture-decoupling--server-run-modes)
+  - [7.1 架构拆分与职责划分](#71-架构拆分与职责划分)
+  - [7.2 命令行启动模式与参数](#72-命令行启动模式与参数)
+  - [7.3 Ed25519 非对称密钥与跨服务免密鉴权](#73-ed25519-非对称密钥与跨服务免密鉴权)
+- [8. CLI 终端客户端使用指南 (Terminal CLI Client Guide)](#8-cli-终端客户端使用指南-terminal-cli-client-guide)
+  - [8.1 编译与快速上手](#81-编译与快速上手)
+  - [8.2 交互式 REPL 菜单模式](#82-交互式-repl-菜单模式)
+  - [8.3 非交互式直接指令模式](#83-非交互式直接指令模式)
+  - [8.4 本地凭证持久化与高亮输出](#84-本地凭证持久化与高亮输出)
 
 ---
 
@@ -462,6 +474,102 @@ curl -X POST http://localhost:8080/api/user/logout \
 
 ---
 
+### 2.10 每日星穹占卜 (POST /api/user/divination)
+- **接口路径**: `POST /api/user/divination`
+- **权限要求**: 需登录 (Protected)
+- **接口描述**: 用户每日抽取一次宇宙星象签文，获得命途神谕与星琼奖励。若今日已完成占卜，则直接返回今日已有占卜结果，不会重复发放奖励。
+
+#### 请求头 (Headers)
+| 头部名称 | 取值 | 是否必填 |
+| :--- | :--- | :--- |
+| `Authorization` | `Bearer <JWT_TOKEN>` | 是 |
+
+#### cURL 示例
+```bash
+curl -X POST http://localhost:8080/api/user/divination \
+  -H "Authorization: Bearer eyJhbGciOiJFZERTQSI..."
+```
+
+#### 首次占卜成功响应 (200 OK)
+```json
+{
+  "message": "占卜完成",
+  "already_drawn": false,
+  "data": {
+    "id": 1,
+    "user_id": "73b6ae34",
+    "date": "2026-10-08",
+    "sign": "大吉·星神注视",
+    "description": "星海泛起璀璨回音，今日十连必有金光闪烁！",
+    "reward_amount": 160,
+    "created_at": "2026-10-08T09:00:00Z"
+  }
+}
+```
+
+#### 今日已占卜重复调用响应 (200 OK)
+```json
+{
+  "message": "今日已完成占卜",
+  "already_drawn": true,
+  "data": {
+    "id": 1,
+    "user_id": "73b6ae34",
+    "date": "2026-10-08",
+    "sign": "大吉·星神注视",
+    "description": "星海泛起璀璨回音，今日十连必有金光闪烁！",
+    "reward_amount": 160,
+    "created_at": "2026-10-08T09:00:00Z"
+  }
+}
+```
+
+---
+
+### 2.11 查询今日占卜结果 (GET /api/user/divination)
+- **接口路径**: `GET /api/user/divination`
+- **权限要求**: 需登录 (Protected)
+- **接口描述**: 查询当前登录用户今日是否已完成占卜以及对应的签文记录。
+
+#### 请求头 (Headers)
+| 头部名称 | 取值 | 是否必填 |
+| :--- | :--- | :--- |
+| `Authorization` | `Bearer <JWT_TOKEN>` | 是 |
+
+#### cURL 示例
+```bash
+curl -X GET http://localhost:8080/api/user/divination \
+  -H "Authorization: Bearer eyJhbGciOiJFZERTQSI..."
+```
+
+#### 今日已占卜响应 (200 OK)
+```json
+{
+  "message": "今日已完成占卜",
+  "already_drawn": true,
+  "data": {
+    "id": 1,
+    "user_id": "73b6ae34",
+    "date": "2026-10-08",
+    "sign": "大吉·星神注视",
+    "description": "星海泛起璀璨回音，今日十连必有金光闪烁！",
+    "reward_amount": 160,
+    "created_at": "2026-10-08T09:00:00Z"
+  }
+}
+```
+
+#### 今日尚未占卜响应 (200 OK)
+```json
+{
+  "message": "今日尚未占卜",
+  "already_drawn": false,
+  "data": null
+}
+```
+
+---
+
 ## 3. 抽卡与玩法模块 (Gacha & Gameplay Module)
 
 ### 3.1 获取卡池与概率配置 (GET /api/pool/info)
@@ -796,6 +904,69 @@ data: {"event":"PROB_UPDATE","data":"卡池概率配置已更新！","timestamp"
 
 ---
 
+### 3.8 蒙特卡洛抽卡极速测算 (POST /api/gacha/simulate)
+- **接口路径**: `POST /api/gacha/simulate`
+- **权限要求**: 需登录 (Protected)
+- **接口描述**: 基于当前全局活跃的概率与保底配置快照（软保底加成、硬保底阈值、50% UP 不歪机制），进行纯内存的大规模蒙特卡洛随机抽样仿真测算（1 ~ 50,000 次跃迁），零数据库写入污染，毫秒级返回样本出率、出金平均间隔与欧皇指数评分。
+
+#### 请求头 (Headers)
+| 头部名称 | 取值 | 是否必填 |
+| :--- | :--- | :--- |
+| `Content-Type` | `application/json` | 是 |
+| `Authorization` | `Bearer <JWT_TOKEN>` | 是 |
+
+#### 请求体 (Request Body)
+| 字段名 | 类型 | 必填 | 默认值 | 描述 |
+| :--- | :--- | :--- | :--- | :--- |
+| `pulls` | `int` | 否 | 1000 | 拟测算的抽卡总次数 (范围: 1 ~ 50000) |
+
+#### cURL 示例
+```bash
+curl -X POST http://localhost:8080/api/gacha/simulate \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJFZERTQSI..." \
+  -d '{
+    "pulls": 1000
+  }'
+```
+
+#### 成功响应 (200 OK)
+```json
+{
+  "total_pulls": 1000,
+  "s_count": 16,
+  "a_count": 128,
+  "b_count": 856,
+  "up_count": 9,
+  "non_up_count": 7,
+  "empirical_s_rate": 1.6,
+  "empirical_a_rate": 12.8,
+  "avg_pulls_per_s": 62.5,
+  "up_rate": 56.25,
+  "luck_score": 72,
+  "luck_level": "欧气满满",
+  "cfg_snapshot": {
+    "base_rate_s": 0.008,
+    "base_rate_a": 0.08,
+    "base_rate_b": 0.912,
+    "soft_pity_start": 65,
+    "soft_pity_inc": 0.05,
+    "hard_pity_s": 80,
+    "hard_pity_a": 10,
+    "max_limited_s": 3
+  }
+}
+```
+
+#### 错误响应 (400 Bad Request)
+```json
+{
+  "error": "单次模拟抽卡次数不可超过 50,000"
+}
+```
+
+---
+
 ## 4. 管理员后台模块 (Admin Module)
 
 > **注意**: 管理员模块下的全部接口均需要用户具备 `role = 'admin'` 权限。若普通用户访问，将收到 `403 Forbidden`。
@@ -1120,6 +1291,17 @@ curl -X PUT http://localhost:8080/api/admin/pool/config \
 | `HardPityA` | `hard_pity_a` | `int` | `10` | A 档硬保底抽数 (必出 A 或 S) |
 | `MaxLimitedS` | `max_limited_s` | `int` | `3` | 卡池内共存限定 S 角色最大数量上限 (FIFO) |
 
+### 5.6 DivinationRecord (星穹每日占卜记录实体)
+| 字段名 | JSON Key | 类型 | 描述 |
+| :--- | :--- | :--- | :--- |
+| `ID` | `id` | `uint` | 主键自增 ID |
+| `UserID` | `user_id` | `string` | 关联用户唯一标识 (索引) |
+| `Date` | `date` | `string` | 占卜自然日格式 (YYYY-MM-DD，联合索引) |
+| `Sign` | `sign` | `string` | 占卜星象签文 (如 "大吉·星神注视") |
+| `Description` | `description` | `string` | 命途神谕文本 |
+| `RewardAmount` | `reward_amount` | `int` | 星穹赠礼星琼数量 (如 160) |
+| `CreatedAt` | `created_at` | `string (ISO 8601)` | 抽取时间戳 |
+
 ---
 
 ## 6. gRPC 配置流式分发服务 (gRPC Config Streaming Service)
@@ -1161,4 +1343,213 @@ service ConfigService {
 3. **客户端自动重连与原子热重载**:
    - `grpc_client.go` 提供内置后台客户端 `StartGRPCConfigClient`，支持断线指数补偿重连。
    - 收到更新流后，通过 `GlobalConfigAtomic.Store(&newCfg)` 无锁原子更新全局配置，无需停机或加互斥锁，零损耗无缝切入后续祈愿计算。
+
+---
+
+## 7. 服务解耦架构与运行模式 (Architecture Decoupling & Server Run Modes)
+
+为了应对生产级大规模微服务拆分诉求，系统在保持单体一体化部署能力的同时，深度解耦为两大独立职责服务：**管理与认证服务 (Management Server)** 与 **游戏与抽卡服务 (Game Server)**。
+
+### 7.1 架构拆分与职责划分
+
+```mermaid
+flowchart TD
+    subgraph ClientLayer["客户端接入层"]
+        WebUI["Web 赛博朋克前端 (web/index.html)"]
+        CLICli["Terminal CLI 终端 (cmd/cli/main.go)"]
+    end
+
+    subgraph ManagementSvr["管理与认证服务 (Management Server) :8080"]
+        AuthModule["账号与认证 (注册/密码登录/邮箱/GitHub)"]
+        UserMeModule["个人信息维护 (/user/profile, /user/me)"]
+        AdminModule["卡池管理与运营 (/admin/character, /pool/push, /pool/config)"]
+        GRPCSvr["gRPC ConfigService Server (:50051)"]
+        PrivKey["Ed25519 私钥 (jwt_private.pem)"]
+        AuthModule --> PrivKey
+        AdminModule --> GRPCSvr
+    end
+
+    subgraph GameSvr["游戏与抽卡服务 (Game Server) :8081"]
+        PoolInfoModule["公开卡池信息 (/pool/info)"]
+        GachaDrawModule["祈愿抽卡 (/gacha/draw)"]
+        InventoryModule["角色仓库 (/gacha/inventory)"]
+        StatsModule["战报与流水 (/gacha/stats, /gacha/history)"]
+        GRPCClient["gRPC Config Client (订阅 :50051)"]
+        PubKey["Ed25519 公钥 (jwt_public.pem)"]
+        GachaDrawModule --> PubKey
+        GRPCClient --> PoolInfoModule
+    end
+
+    subgraph SharedData["持久化与密钥共享"]
+        SQLiteDB[("SQLite 数据持久层 (gacha.db)")]
+        DiskPEM["持久化 PEM 密钥对\n(jwt_private.pem & jwt_public.pem)"]
+    end
+
+    ClientLayer -->|认证与管理请求| ManagementSvr
+    ClientLayer -->|抽卡与仓库查询| GameSvr
+
+    ManagementSvr --> SQLiteDB
+    GameSvr --> SQLiteDB
+    ManagementSvr -.->|gRPC 流式推送最新配置| GameSvr
+    PrivKey -.-> DiskPEM
+    PubKey -.-> DiskPEM
+```
+
+#### 职责矩阵：
+| 模块/功能 | 管理服务 (Management Server) | 游戏服务 (Game Server) | 联合模式 (Combined Mode) |
+| :--- | :---: | :---: | :---: |
+| 用户注册 / 登录 (`/api/register`, `/api/login`) | ✅ 负责 | ❌ 404 Not Found | ✅ 负责 |
+| 邮箱 / GitHub OAuth 登录 (`/api/auth/*`) | ✅ 负责 | ❌ 404 Not Found | ✅ 负责 |
+| 个人资料 / 信息查询 (`/api/user/*`) | ✅ 负责 | ❌ 404 Not Found | ✅ 负责 |
+| 管理员后台 (`/api/admin/*`) | ✅ 负责 | ❌ 404 Not Found | ✅ 负责 |
+| SSE 实时通知流 (`/api/notifications`) | ✅ 负责 | ❌ 404 Not Found | ✅ 负责 |
+| gRPC 配置广播服务端 (`:50051`) | ✅ 启动 | ❌ 不启动 | ✅ 启动 |
+| 公开卡池信息公示 (`/api/pool/info`) | ❌ 404 Not Found | ✅ 负责 | ✅ 负责 |
+| 祈愿抽卡 (`/api/gacha/draw`) | ❌ 404 Not Found | ✅ 负责 | ✅ 负责 |
+| 角色仓库 (`/api/gacha/inventory`) | ❌ 404 Not Found | ✅ 负责 | ✅ 负责 |
+| 抽卡战报与历史 (`/api/gacha/stats`, `/api/gacha/history`) | ❌ 404 Not Found | ✅ 负责 | ✅ 负责 |
+| gRPC 配置订阅客户端 (`StartGRPCConfigClient`) | ❌ 不启动 | ✅ 启动连接 | ✅ 启动连接 |
+
+### 7.2 命令行启动模式与参数
+
+通过可执行文件支持的命令行参数，运维人员可灵活切换服务形态：
+
+```bash
+# 查看所有支持的标志
+go run main.go --help
+```
+
+- `--mode`: 服务运行模式，可选值：
+  - `all` (默认): 单体联合模式，同时挂载全部路由，默认监听 `:8080` (HTTP) 与 `:50051` (gRPC)。
+  - `management`: 管理服务器模式，仅挂载认证与管理接口，默认监听 `:8080` (HTTP) 与 `:50051` (gRPC Server)。
+  - `game`: 游戏服务器模式，仅挂载卡池公示与抽卡业务接口，默认监听 `:8081` (HTTP)，并自动以后台 gRPC 客户端长连 `localhost:50051` 同步卡池配置。
+- `--port`: 可选，自定义当前 HTTP 服务的监听端口（例如 `--port=9090`）。
+
+#### 快速启动示例：
+```bash
+# 场景一：单体模式（默认）
+go run main.go --mode=all
+
+# 场景二：解耦集群模式
+# 终端 1 启动管理端：
+go run main.go --mode=management --port=8080
+
+# 终端 2 启动游戏端：
+go run main.go --mode=game --port=8081
+```
+
+### 7.3 Ed25519 非对称密钥与跨服务免密鉴权
+
+在服务彻底解耦后，微服务面临经典问题：**Game Server 如何在不调用 Management Server 鉴权接口、不共享私钥的前提下，安全解析与校验用户身份？**
+
+系统基于 **Ed25519 (EdDSA) 非对称椭圆曲线数字签名算法** 实现了高安全、零 RPC 损耗的免密鉴权闭环：
+1. **持久化密钥生成 (`jwt.go`)**：
+   - 服务初次启动时，自动生成 256 位 Ed25519 密钥对，并以标准 PKCS#8 / PKIX PEM 格式持久化至磁盘文件 `jwt_private.pem` 和 `jwt_public.pem`。
+   - 随后的所有实例启动或子进程将直接从磁盘装载同一组权威密钥，确保重启或跨进程状态一致。
+2. **私钥隔离与签名 (`Management Server`)**：
+   - 只有 Management Server 持有并使用 `privateKey` 执行 `GenerateToken` 签名操作。
+3. **公钥分发与无状态本地验签 (`Game Server`)**：
+   - Game Server 仅需持有一份只读的 `jwt_public.pem`（或共享同目录读取）。
+   - 在处理每一次 `/api/gacha/draw` 或 `/api/gacha/inventory` 时，通过 `jwt.ParseWithClaims(token, ..., publicKey)` 在本地微秒级完成签名有效性、过期时间及角色 Claims 的数学证明，**无需向 Management Server 发起任何同步 RPC 验证请求**，杜绝了鉴权网络风暴与性能瓶颈。
+
+---
+
+## 8. CLI 终端客户端使用指南 (Terminal CLI Client Guide)
+
+抽卡模拟器内置全功能、交互式纯 Go 命令行客户端，位于 `cmd/cli/main.go`。该客户端专为极客开发者与自动化脚本打造，支持全彩 ANSI 炫酷终端渲染与免密会话缓存。
+
+### 8.1 编译与快速上手
+
+```bash
+# 编译独立二进制
+go build -o gacha-cli ./cmd/cli
+
+# 查看帮助信息
+./gacha-cli --help
+```
+
+#### 支持参数：
+| 参数名 | 默认值 | 描述 |
+| :--- | :--- | :--- |
+| `--server` | `http://localhost:8080` | 管理服务器 URL (负责登录注册) |
+| `--game-server` | 与 `--server` 保持一致 | 游戏服务器 URL (若解耦部署可指定为 `http://localhost:8081`) |
+| `--cmd` | 空 (进入交互 REPL) | 非交互式直接指令执行模式 |
+| `--id` | 空 | 配合 `--cmd=login` 使用的用户 ID |
+| `--password` | 空 | 配合 `--cmd=login` / `--cmd=register` 使用的密码 |
+| `--nickname` | 空 | 配合 `--cmd=register` 使用的昵称 |
+| `--bio` | 空 | 配合 `--cmd=register` 使用的简介 |
+
+### 8.2 交互式 REPL 菜单模式
+
+直接运行 `./gacha-cli`（或在解耦模式下运行 `./gacha-cli --server http://localhost:8080 --game-server http://localhost:8081`），将进入交互式主菜单：
+
+```text
+=================================================================
+         ✦  ASTRAL GACHA SIMULATOR - TERMINAL CLI  ✦           
+=================================================================
+ [用户]: 幸运开拓者 (73b6ae34) | [S保底]: 42/80 | [A保底]: 4/10
+ [管理服务器]: http://localhost:8080 | [游戏服务器]: http://localhost:8081
+-----------------------------------------------------------------
+ 1.  登录 (Login)
+ 2.  注册 (Register)
+ 3.  查看卡池信息 (Pool Info)
+ 4.  单抽 (Draw 1)
+ 5.  十连抽 (Draw 10)
+ 6.  查看角色仓库 (Inventory)
+ 7.  抽卡战报统计 (Stats)
+ 8.  查看抽卡历史流水 (History)
+ 9.  清空抽卡历史与保底 (Clear History)
+ 10. 登出当前账号 (Logout)
+ 11. 星穹每日占卜 (Daily Divination)
+ 12. 蒙特卡洛抽卡测算 (Monte Carlo Sim)
+ 0.  退出程序 (Exit)
+-----------------------------------------------------------------
+请选择操作 [0-12]: 
+```
+
+### 8.3 非交互式直接指令模式
+
+适合通过终端管道或脚本自动化批量调用：
+
+```bash
+# 1. 命令行直接注册并自动登录
+./gacha-cli --cmd register --nickname "auto_bot" --password "botpass123"
+
+# 2. 命令行直接登录
+./gacha-cli --cmd login --id "auto_bot" --password "botpass123"
+
+# 3. 查看卡池信息
+./gacha-cli --cmd pool
+
+# 4. 执行十连抽
+./gacha-cli --cmd draw10
+
+# 5. 查看角色背包清单
+./gacha-cli --cmd inventory
+
+# 6. 查看出金分析与歪卡战报
+./gacha-cli --cmd stats
+
+# 7. 查看历史抽卡流水
+./gacha-cli --cmd history
+
+# 8. 每日星穹占卜获取签文与星琼
+./gacha-cli --cmd divination
+
+# 9. 蒙特卡洛极速概率测算 (默认 1000 抽，支持 --pulls 调整)
+./gacha-cli --cmd sim --pulls 5000
+```
+
+### 8.4 本地凭证持久化与高亮输出
+
+1. **会话缓存 (`.gacha_cli_token`)**：
+   - 登录成功后，Token 与用户资料将自动写入本地文件 `.gacha_cli_token`；
+   - 每次 CLI 启动时自动读取并校验会话，无需每次重复输入密码；
+   - 执行登出或清空历史时自动安全注销。
+2. **ANSI 终端高品质调色**：
+   - **金光耀目 (Gold / Yellow)**：S 级角色与限定 UP 尊贵标识；
+   - **紫电流转 (Purple / Magenta)**：A 级角色与十连保底；
+   - **青空如洗 (Cyan / Blue)**：B 级武器与量产装备；
+   - **鲜绿与正红 (Green / Red)**：成功与告警提示。
+
 
