@@ -134,19 +134,44 @@ func TestAuthFlow(t *testing.T) {
 		t.Fatalf("Expected bio 'Testing gacha simulator', got '%s'", loginResp.User.Bio)
 	}
 	userToken := loginResp.Token
+
+	// Test login with nickname fallback
+	loginNickReq := map[string]string{
+		"id":       "gacha_fan",
+		"password": "secretpassword",
+	}
+	wNick := performRequest(router, "POST", "/api/login", loginNickReq, nil)
+	if wNick.Code != http.StatusOK {
+		t.Fatalf("Login with nickname expected 200, got %d: %s", wNick.Code, wNick.Body.String())
+	}
+	var loginNickResp struct {
+		Token string `json:"token"`
+		User  struct {
+			ID       string `json:"id"`
+			Nickname string `json:"nickname"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(wNick.Body.Bytes(), &loginNickResp); err != nil {
+		t.Fatalf("Failed to unmarshal login with nickname response: %v", err)
+	}
+	if loginNickResp.Token == "" || loginNickResp.User.ID != userID || loginNickResp.User.Nickname != "gacha_fan" {
+		t.Fatalf("Unexpected login with nickname data: %+v", loginNickResp)
+	}
+
 	authHeader := map[string]string{"Authorization": "Bearer " + userToken}
 	w = performRequest(router, "GET", "/api/user/me", nil, authHeader)
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET /api/user/me expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	var meResp struct {
-		UserID string `json:"user_id"`
-		Role   string `json:"role"`
+		UserID   string `json:"user_id"`
+		Nickname string `json:"nickname"`
+		Role     string `json:"role"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &meResp); err != nil {
 		t.Fatalf("Failed to unmarshal me response: %v", err)
 	}
-	if meResp.UserID != userID || meResp.Role != "user" {
+	if meResp.UserID != userID || meResp.Role != "user" || meResp.Nickname != "gacha_fan" {
 		t.Fatalf("Unexpected me response: %+v", meResp)
 	}
 	updateReq := map[string]string{
@@ -871,6 +896,28 @@ func TestGithubOAuth_Flow(t *testing.T) {
 		t.Fatalf("Expected same user ID %s on repeated login, got %s", firstUserID, secondCbResp.User.ID)
 	}
 
+	// 3b. Browser callback with Accept: text/html -> returns HTML with localStorage and redirect
+	w = performRequest(router, "GET", "/api/auth/github/callback?code=valid_code_123", nil, map[string]string{
+		"Accept": "text/html,application/xhtml+xml",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK for browser HTML github callback, got %d: %s", w.Code, w.Body.String())
+	}
+	contentType := w.Header().Get("Content-Type")
+	if !strings.Contains(contentType, "text/html") {
+		t.Fatalf("Expected Content-Type to contain text/html, got %s", contentType)
+	}
+	bodyStr := w.Body.String()
+	if !strings.Contains(bodyStr, "localStorage.setItem('gacha_token'") {
+		t.Fatalf("Expected HTML body to contain localStorage.setItem('gacha_token'), got %s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "localStorage.setItem('gacha_user', JSON.stringify(") {
+		t.Fatalf("Expected HTML body to contain localStorage.setItem('gacha_user', JSON.stringify(, got %s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "window.location.href = '/'") {
+		t.Fatalf("Expected HTML body to contain window.location.href = '/', got %s", bodyStr)
+	}
+
 	// 4. Callback with GitHub profile containing existing email -> links github_id to existing account
 	linkedEmail := "linked@domain.com"
 	existingUser := User{
@@ -923,6 +970,45 @@ func TestGithubOAuth_Flow(t *testing.T) {
 	w = performRequest(router, "POST", "/api/auth/github/callback", map[string]string{"code": "invalid_code"}, nil)
 	if w.Code != http.StatusBadRequest && w.Code != http.StatusUnauthorized {
 		t.Fatalf("Expected 400 or 401 for invalid code, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGithubOAuth_SingleQuoteNickname(t *testing.T) {
+	setupTestDB(t)
+	router := setupRouter()
+
+	mockOAuth := &MockOAuthProvider{
+		Token: "mock_gh_token_quote",
+		Profile: &GithubProfile{
+			ID:        789101,
+			Login:     "O'Connor",
+			Name:      "Arthur O'Connor",
+			Email:     "oconnor@example.com",
+			AvatarURL: "https://github.com/images/error/oconnor.gif",
+		},
+	}
+	origOAuth := CurrentOAuthProvider
+	CurrentOAuthProvider = mockOAuth
+	defer func() {
+		CurrentOAuthProvider = origOAuth
+	}()
+
+	w := performRequest(router, "GET", "/api/auth/github/callback?code=quote_code", nil, map[string]string{
+		"Accept": "text/html,application/xhtml+xml",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK for github callback with single-quote nickname, got %d: %s", w.Code, w.Body.String())
+	}
+	contentType := w.Header().Get("Content-Type")
+	if !strings.Contains(contentType, "text/html") {
+		t.Fatalf("Expected Content-Type to contain text/html, got %s", contentType)
+	}
+	bodyStr := w.Body.String()
+	if !strings.Contains(bodyStr, "JSON.stringify(") {
+		t.Fatalf("Expected HTML body to contain JSON.stringify(, got %s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "O'Connor") {
+		t.Fatalf("Expected HTML body to contain O'Connor, got %s", bodyStr)
 	}
 }
 

@@ -67,6 +67,18 @@ func setupRouter() *gin.Engine {
 		protected.GET("/user/me", func(c *gin.Context) {
 			userID, _ := c.Get("userID")
 			role, _ := c.Get("role")
+			var user User
+			if err := DB.Where("id = ?", userID).First(&user).Error; err == nil {
+				c.JSON(http.StatusOK, gin.H{
+					"user_id":      user.ID,
+					"nickname":     user.Nickname,
+					"role":         user.Role,
+					"bio":          user.Bio,
+					"pity_s_count": user.PitySCount,
+					"pity_a_count": user.PityACount,
+				})
+				return
+			}
 			c.JSON(http.StatusOK, gin.H{"user_id": userID, "role": role})
 		})
 
