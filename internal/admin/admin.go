@@ -1,4 +1,4 @@
-package main
+package admin
 
 import (
 	"encoding/json"
@@ -12,27 +12,21 @@ import (
 	"sync"
 	"time"
 
+	"gacha-simulator/internal/database"
+	"gacha-simulator/internal/grpcservice"
+	"gacha-simulator/internal/model"
+	"gacha-simulator/internal/notification"
+
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
-
-func AdminRequired() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		role, exists := c.Get("role")
-		if !exists || role != "admin" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
-			c.Abort()
-			return
-		}
-		c.Next()
-	}
-}
 
 type CreateCharacterReq struct {
 	Name      string `json:"name" binding:"required"`
 	Rarity    string `json:"rarity" binding:"required"` // "S", "A", "B"
 	IsLimited bool   `json:"is_limited"`
 }
+
 type PushToPoolReq struct {
 	CharacterID uint   `json:"character_id" binding:"required"`
 	IsUp        bool   `json:"is_up"`
@@ -57,8 +51,8 @@ func normalizeCharacterDetails(name, rarity string) (string, string, error) {
 }
 
 func GetAdminCharactersHandler(c *gin.Context) {
-	characters := make([]Character, 0)
-	if err := DB.Order("id ASC").Find(&characters).Error; err != nil {
+	characters := make([]model.Character, 0)
+	if err := database.DB.Order("id ASC").Find(&characters).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load characters"})
 		return
 	}
@@ -80,13 +74,13 @@ func CreateCharacterHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "only S rarity characters can be limited"})
 		return
 	}
-	char := Character{
+	char := model.Character{
 		Name:      name,
 		Rarity:    rarity,
 		IsLimited: req.IsLimited,
 		IsInPool:  false,
 	}
-	if err := DB.Create(&char).Error; err != nil {
+	if err := database.DB.Create(&char).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 		return
 	}
@@ -95,6 +89,7 @@ func CreateCharacterHandler(c *gin.Context) {
 		"data":    char,
 	})
 }
+
 func PushCharacterToPoolHandler(c *gin.Context) {
 	var req PushToPoolReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -112,8 +107,8 @@ func PushCharacterToPoolHandler(c *gin.Context) {
 	poolMutationMutex.Lock()
 	defer poolMutationMutex.Unlock()
 
-	var char Character
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	var char model.Character
+	err := database.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.First(&char, req.CharacterID).Error; err != nil {
 			return err
 		}
@@ -139,7 +134,7 @@ func PushCharacterToPoolHandler(c *gin.Context) {
 		char.IsInPool = true
 		char.IsUp = req.IsUp && char.Rarity == "S"
 		if char.IsUp {
-			if err := tx.Model(&Character{}).Where("id <> ? AND is_up = ?", char.ID, true).Update("is_up", false).Error; err != nil {
+			if err := tx.Model(&model.Character{}).Where("id <> ? AND is_up = ?", char.ID, true).Update("is_up", false).Error; err != nil {
 				return err
 			}
 		}
@@ -147,7 +142,7 @@ func PushCharacterToPoolHandler(c *gin.Context) {
 			return err
 		}
 		if char.Rarity == "S" && char.IsLimited {
-			if err := enforceLimitedSCap(tx, GetCurrentPoolConfig().MaxLimitedS, char.ID, nil); err != nil {
+			if err := enforceLimitedSCap(tx, model.GetCurrentPoolConfig().MaxLimitedS, char.ID, nil); err != nil {
 				return err
 			}
 		}
@@ -169,20 +164,21 @@ func PushCharacterToPoolHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to push into pool" + err.Error()})
 		return
 	}
-	GlobalSSEBroker.Broadcast("POOL_UPDATE", fmt.Sprintf("角色【%s】已加入卡池！", char.Name))
+	notification.GlobalSSEBroker.Broadcast("POOL_UPDATE", fmt.Sprintf("角色【%s】已加入卡池！", char.Name))
 	c.JSON(http.StatusOK, gin.H{
 		"message": "character pushed into pool successfully",
 		"data":    char,
 	})
 }
+
 func GetPoolInfoHandler(c *gin.Context) {
-	cfg := GetCurrentPoolConfig()
-	var limitedS []Character
-	DB.Where("rarity = ? AND is_limited = ? AND is_in_pool = ?", "S", true, true).Find(&limitedS)
-	var upS Character
-	hasUp := (DB.Where("rarity = ? AND is_up = ? AND is_in_pool = ?", "S", true, true).First(&upS).Error == nil)
-	var standardChars []Character
-	DB.Where("is_limited = ? AND is_in_pool = ?", false, true).Find(&standardChars)
+	cfg := model.GetCurrentPoolConfig()
+	var limitedS []model.Character
+	database.DB.Where("rarity = ? AND is_limited = ? AND is_in_pool = ?", "S", true, true).Find(&limitedS)
+	var upS model.Character
+	hasUp := (database.DB.Where("rarity = ? AND is_up = ? AND is_in_pool = ?", "S", true, true).First(&upS).Error == nil)
+	var standardChars []model.Character
+	database.DB.Where("is_limited = ? AND is_in_pool = ?", false, true).Find(&standardChars)
 	c.JSON(http.StatusOK, gin.H{
 		"config": cfg,
 		"banner": gin.H{
@@ -212,8 +208,8 @@ type PresetCharacter struct {
 // enforceLimitedSCap evicts the oldest in-pool limited S characters until the
 // configured cap is met. keepID is excluded when a pushed character must stay
 // in the pool. Equal entry times are ordered by character ID.
-func enforceLimitedSCap(tx *gorm.DB, maxLimitedS int, keepID uint, loadedChars *[]Character) error {
-	var currentLimitedS []Character
+func enforceLimitedSCap(tx *gorm.DB, maxLimitedS int, keepID uint, loadedChars *[]model.Character) error {
+	var currentLimitedS []model.Character
 	if err := tx.Where("rarity = ? AND is_limited = ? AND is_in_pool = ?", "S", true, true).
 		Order("entered_pool_at ASC").Order("id ASC").Find(&currentLimitedS).Error; err != nil {
 		return err
@@ -303,16 +299,16 @@ func LoadPresetsHandler(c *gin.Context) {
 		}
 	}
 
-	var loadedChars []Character
+	var loadedChars []model.Character
 	poolMutationMutex.Lock()
 	defer poolMutationMutex.Unlock()
-	err = DB.Transaction(func(tx *gorm.DB) error {
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
 		now := time.Now()
 		for _, item := range presetList {
-			var char Character
+			var char model.Character
 			err := tx.Where("name = ?", item.Name).First(&char).Error
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				char = Character{
+				char = model.Character{
 					Name:          item.Name,
 					Rarity:        item.Rarity,
 					IsLimited:     item.IsLimited,
@@ -321,7 +317,7 @@ func LoadPresetsHandler(c *gin.Context) {
 					EnteredPoolAt: &now,
 				}
 				if item.IsUp {
-					if err := tx.Model(&Character{}).Where("is_up = ?", true).Update("is_up", false).Error; err != nil {
+					if err := tx.Model(&model.Character{}).Where("is_up = ?", true).Update("is_up", false).Error; err != nil {
 						return err
 					}
 					for i := range loadedChars {
@@ -344,7 +340,7 @@ func LoadPresetsHandler(c *gin.Context) {
 				}
 				char.IsUp = item.IsUp
 				if item.IsUp {
-					if err := tx.Model(&Character{}).Where("is_up = ?", true).Update("is_up", false).Error; err != nil {
+					if err := tx.Model(&model.Character{}).Where("is_up = ?", true).Update("is_up", false).Error; err != nil {
 						return err
 					}
 					for i := range loadedChars {
@@ -358,7 +354,7 @@ func LoadPresetsHandler(c *gin.Context) {
 			loadedChars = append(loadedChars, char)
 		}
 
-		if err := enforceLimitedSCap(tx, GetCurrentPoolConfig().MaxLimitedS, 0, &loadedChars); err != nil {
+		if err := enforceLimitedSCap(tx, model.GetCurrentPoolConfig().MaxLimitedS, 0, &loadedChars); err != nil {
 			return err
 		}
 
@@ -370,7 +366,7 @@ func LoadPresetsHandler(c *gin.Context) {
 		return
 	}
 
-	GlobalSSEBroker.Broadcast("POOL_UPDATE", fmt.Sprintf("已成功载入 %d 位预设角色到卡池！", len(loadedChars)))
+	notification.GlobalSSEBroker.Broadcast("POOL_UPDATE", fmt.Sprintf("已成功载入 %d 位预设角色到卡池！", len(loadedChars)))
 	c.JSON(http.StatusOK, gin.H{
 		"message": "presets loaded successfully",
 		"count":   len(loadedChars),
@@ -396,7 +392,7 @@ func UpdatePoolConfigHandler(c *gin.Context) {
 		return
 	}
 
-	oldCfg := GetCurrentPoolConfig()
+	oldCfg := model.GetCurrentPoolConfig()
 	newCfg := oldCfg
 
 	if req.BaseRateS != nil {
@@ -445,9 +441,9 @@ func UpdatePoolConfigHandler(c *gin.Context) {
 		return
 	}
 
-	GlobalConfigAtomic.Store(&newCfg)
-	BroadcastConfigToGRPC(&newCfg)
-	GlobalSSEBroker.Broadcast("PROB_UPDATE", "卡池概率配置已更新！")
+	model.GlobalConfigAtomic.Store(&newCfg)
+	grpcservice.BroadcastConfigToGRPC(&newCfg)
+	notification.GlobalSSEBroker.Broadcast("PROB_UPDATE", "卡池概率配置已更新！")
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "卡池配置更新成功",

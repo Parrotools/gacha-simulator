@@ -1,4 +1,4 @@
-package main
+package grpcservice
 
 import (
 	"log"
@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"gacha-simulator/internal/model"
 	proto "gacha-simulator/proto"
 
 	"google.golang.org/grpc"
@@ -34,7 +35,7 @@ func (s *GRPCConfigServer) SubscribeConfigUpdates(req *proto.EmptyRequest, strea
 		s.mu.Unlock()
 	}()
 
-	cfg := GetCurrentPoolConfig()
+	cfg := model.GetCurrentPoolConfig()
 	initMsg := &proto.PoolConfigMessage{
 		BaseRateS:     cfg.BaseRateS,
 		BaseRateA:     cfg.BaseRateA,
@@ -67,7 +68,7 @@ func (s *GRPCConfigServer) SubscribeConfigUpdates(req *proto.EmptyRequest, strea
 	}
 }
 
-func BroadcastConfigToGRPC(cfg *PoolConfig) {
+func BroadcastConfigToGRPC(cfg *model.PoolConfig) {
 	if cfg == nil {
 		return
 	}

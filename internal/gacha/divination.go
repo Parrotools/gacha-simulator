@@ -1,10 +1,13 @@
-package main
+package gacha
 
 import (
 	"errors"
 	"math/rand"
 	"net/http"
 	"time"
+
+	"gacha-simulator/internal/database"
+	"gacha-simulator/internal/model"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -59,8 +62,8 @@ func DivinationHandler(c *gin.Context) {
 
 	today := time.Now().Format("2006-01-02")
 
-	var existing DivinationRecord
-	err := DB.Where("user_id = ? AND date = ?", userID, today).First(&existing).Error
+	var existing model.DivinationRecord
+	err := database.DB.Where("user_id = ? AND date = ?", userID, today).First(&existing).Error
 	if err == nil {
 		c.JSON(http.StatusOK, gin.H{
 			"message":       "今日已完成占卜",
@@ -76,7 +79,7 @@ func DivinationHandler(c *gin.Context) {
 
 	// Pick a random celestial fortune
 	chosen := astralFortunes[rand.Intn(len(astralFortunes))]
-	newRecord := DivinationRecord{
+	newRecord := model.DivinationRecord{
 		UserID:       userID,
 		Date:         today,
 		Sign:         chosen.Sign,
@@ -85,10 +88,10 @@ func DivinationHandler(c *gin.Context) {
 		CreatedAt:    time.Now(),
 	}
 
-	if err := DB.Create(&newRecord).Error; err != nil {
+	if err := database.DB.Create(&newRecord).Error; err != nil {
 		// Concurrent creation race: fetch the created record
-		var existing DivinationRecord
-		if findErr := DB.Where("user_id = ? AND date = ?", userID, today).First(&existing).Error; findErr == nil {
+		var existing model.DivinationRecord
+		if findErr := database.DB.Where("user_id = ? AND date = ?", userID, today).First(&existing).Error; findErr == nil {
 			c.JSON(http.StatusOK, gin.H{
 				"message":       "今日已完成占卜",
 				"already_drawn": true,
@@ -122,8 +125,8 @@ func GetDivinationHandler(c *gin.Context) {
 
 	today := time.Now().Format("2006-01-02")
 
-	var existing DivinationRecord
-	err := DB.Where("user_id = ? AND date = ?", userID, today).First(&existing).Error
+	var existing model.DivinationRecord
+	err := database.DB.Where("user_id = ? AND date = ?", userID, today).First(&existing).Error
 	if err == nil {
 		c.JSON(http.StatusOK, gin.H{
 			"message":       "今日已完成占卜",

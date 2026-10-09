@@ -1,10 +1,8 @@
-package main
+package model
 
 import (
 	"sync/atomic"
 	"time"
-
-	"gorm.io/gorm"
 )
 
 type User struct {
@@ -20,6 +18,7 @@ type User struct {
 	CreatedAt  time.Time `json:"created_at"`
 	UpdateAt   time.Time `json:"updated_at"`
 }
+
 type Character struct {
 	ID            uint       `json:"id" gorm:"primaryKey"`
 	Name          string     `json:"name" gorm:"type:varchar(50);not null"`
@@ -29,6 +28,7 @@ type Character struct {
 	IsUp          bool       `json:"is_up" gorm:"default:false"`
 	EnteredPoolAt *time.Time `json:"entered_pool_at"`
 }
+
 type UserCharacter struct {
 	ID          uint      `json:"id" gorm:"primaryKey"`
 	UserID      string    `json:"user_id" gorm:"type:varchar(36);index"`
@@ -36,6 +36,7 @@ type UserCharacter struct {
 	Character   Character `json:"character" gorm:"foreignKey:CharacterID"`
 	Rank        int       `json:"rank" gorm:"default:0"`
 }
+
 type GachaRecord struct {
 	ID            uint      `json:"id" gorm:"primaryKey"`
 	UserID        string    `json:"user_id" gorm:"type:varchar(36);index"`
@@ -46,6 +47,7 @@ type GachaRecord struct {
 	PityCount     int       `json:"pity_count"`
 	CreatedAt     time.Time `json:"created_at"`
 }
+
 type DivinationRecord struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
 	UserID       string    `gorm:"uniqueIndex:idx_user_date;not null" json:"user_id"`
@@ -55,6 +57,7 @@ type DivinationRecord struct {
 	RewardAmount int       `json:"reward_amount"`                                  // e.g. 60 or 100 Stellar Jade
 	CreatedAt    time.Time `json:"created_at"`
 }
+
 type PoolConfig struct {
 	BaseRateS     float64 `json:"base_rate_s"`
 	BaseRateA     float64 `json:"base_rate_a"`
@@ -66,7 +69,7 @@ type PoolConfig struct {
 	MaxLimitedS   int     `json:"max_limited_s"`
 }
 
-var currentConfigDefault = PoolConfig{
+var CurrentConfigDefault = PoolConfig{
 	BaseRateS:     0.008,
 	BaseRateA:     0.080,
 	BaseRateB:     0.912,
@@ -77,18 +80,16 @@ var currentConfigDefault = PoolConfig{
 	MaxLimitedS:   3,
 }
 
-var GlobalConfig = currentConfigDefault
+var GlobalConfig = CurrentConfigDefault
 var GlobalConfigAtomic atomic.Pointer[PoolConfig]
 
 func init() {
-	GlobalConfigAtomic.Store(&currentConfigDefault)
+	GlobalConfigAtomic.Store(&CurrentConfigDefault)
 }
 
 func GetCurrentPoolConfig() PoolConfig {
 	if cfg := GlobalConfigAtomic.Load(); cfg != nil {
 		return *cfg
 	}
-	return currentConfigDefault
+	return CurrentConfigDefault
 }
-
-var DB *gorm.DB

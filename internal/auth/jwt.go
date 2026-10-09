@@ -1,26 +1,34 @@
-package main
+package auth
 
 import (
 	"crypto/ed25519"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
-	"github.com/golang-jwt/jwt/v5"
 	"log"
 	"os"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 var privateKey ed25519.PrivateKey
 var publicKey ed25519.PublicKey
 
 func init() {
-	loadOrGenerateKeys()
+	LoadOrGenerateKeys()
 }
 
-func loadOrGenerateKeys() {
+func LoadOrGenerateKeys() {
 	privFile := "jwt_private.pem"
 	pubFile := "jwt_public.pem"
+
+	if _, err := os.Stat(privFile); os.IsNotExist(err) {
+		if _, err := os.Stat("../" + privFile); err == nil {
+			privFile = "../" + privFile
+			pubFile = "../" + pubFile
+		}
+	}
 
 	privPEM, errPriv := os.ReadFile(privFile)
 	pubPEM, errPub := os.ReadFile(pubFile)
@@ -87,6 +95,7 @@ func GenerateToken(userID string, role string) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
 	return token.SignedString(privateKey)
 }
+
 func ParseToken(tokenString string) (*CustomClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &CustomClaims{}, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodEd25519); !ok {

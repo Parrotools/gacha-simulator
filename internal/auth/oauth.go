@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"bytes"
@@ -9,7 +9,17 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
+	"strings"
 	"time"
+
+	"gacha-simulator/internal/database"
+	"gacha-simulator/internal/model"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 type GithubProfile struct {
@@ -178,3 +188,148 @@ func (g *GithubOAuthClient) GetUserProfile(token string) (*GithubProfile, error)
 }
 
 var CurrentOAuthProvider OAuthProvider = NewGithubOAuthClient()
+
+func GithubLoginHandler(c *gin.Context) {
+	state := c.Query("state")
+	if state == "" {
+		state = uuid.New().String()[:8]
+	}
+	authURL := CurrentOAuthProvider.GetAuthURL(state)
+	if c.Query("redirect") == "true" {
+		c.Redirect(http.StatusTemporaryRedirect, authURL)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"auth_url": authURL,
+		"state":    state,
+	})
+}
+
+func GithubCallbackHandler(c *gin.Context) {
+	var req struct {
+		Code  string `json:"code" form:"code"`
+		State string `json:"state" form:"state"`
+	}
+	_ = c.ShouldBindQuery(&req)
+	if req.Code == "" {
+		_ = c.ShouldBindJSON(&req)
+	}
+	if req.Code == "" {
+		req.Code = c.Query("code")
+	}
+	if req.Code == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "authorization code is required"})
+		return
+	}
+
+	accessToken, err := CurrentOAuthProvider.ExchangeCode(req.Code)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to exchange code: " + err.Error()})
+		return
+	}
+
+	profile, err := CurrentOAuthProvider.GetUserProfile(accessToken)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to get github profile: " + err.Error()})
+		return
+	}
+
+	ghIDStr := strconv.FormatInt(profile.ID, 10)
+	var user model.User
+	err = database.DB.Where("github_id = ?", ghIDStr).First(&user).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database error: " + err.Error()})
+		return
+	}
+
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		if profile.Email != "" {
+			var existingEmailUser model.User
+			if err := database.DB.Where("email = ?", profile.Email).First(&existingEmailUser).Error; err == nil {
+				existingEmailUser.GithubID = &ghIDStr
+				if err := database.DB.Save(&existingEmailUser).Error; err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to link github account: " + err.Error()})
+					return
+				}
+				user = existingEmailUser
+			}
+		}
+
+		if user.ID == "" {
+			generatedID := uuid.New().String()[:8]
+			nickname := profile.Login
+			if nickname == "" {
+				nickname = profile.Name
+			}
+			if nickname == "" {
+				nickname = "gh_" + ghIDStr
+			}
+			hashedPwd, err := bcrypt.GenerateFromPassword([]byte(uuid.New().String()), bcrypt.DefaultCost)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
+				return
+			}
+			var emailPtr *string
+			if profile.Email != "" {
+				emailPtr = &profile.Email
+			}
+			user = model.User{
+				ID:       generatedID,
+				Nickname: nickname,
+				Password: string(hashedPwd),
+				GithubID: &ghIDStr,
+				Email:    emailPtr,
+				Role:     "user",
+			}
+			if err := database.DB.Create(&user).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user: " + err.Error()})
+				return
+			}
+		}
+	}
+
+	token, err := GenerateToken(user.ID, user.Role)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate token: " + err.Error()})
+		return
+	}
+
+	if strings.Contains(c.GetHeader("Accept"), "text/html") {
+		userMap := gin.H{
+			"id":        user.ID,
+			"nickname":  user.Nickname,
+			"role":      user.Role,
+			"bio":       user.Bio,
+			"email":     user.Email,
+			"github_id": user.GithubID,
+		}
+		userJSONBytes, _ := json.Marshal(userMap)
+		htmlContent := fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>GitHub Login</title></head>
+<body>
+<p style="text-align:center;margin-top:20vh;font-family:sans-serif;color:#333;">GitHub 授权成功，正在跳转...</p>
+<script>
+    localStorage.setItem('gacha_token', '%s');
+    localStorage.setItem('gacha_user', JSON.stringify(%s));
+    window.location.href = '/';
+</script>
+</body>
+</html>`, token, string(userJSONBytes))
+		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(htmlContent))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "github login successfully",
+		"token":   token,
+		"user": gin.H{
+			"id":        user.ID,
+			"nickname":  user.Nickname,
+			"role":      user.Role,
+			"bio":       user.Bio,
+			"email":     user.Email,
+			"github_id": user.GithubID,
+		},
+	})
+}

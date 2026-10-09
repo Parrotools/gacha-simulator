@@ -1,4 +1,4 @@
-package main
+package gacha
 
 import (
 	"errors"
@@ -8,6 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"gacha-simulator/internal/database"
+	"gacha-simulator/internal/model"
+
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -15,14 +18,14 @@ import (
 var drawMutex sync.Mutex
 
 type DrawResult struct {
-	Character   Character `json:"character"`
-	IsFirstTime bool      `json:"is_first_time"`
-	Rank        int       `json:"rank"`
-	PityCountS  int       `json:"pity_count_s"`
+	Character   model.Character `json:"character"`
+	IsFirstTime bool            `json:"is_first_time"`
+	Rank        int             `json:"rank"`
+	PityCountS  int             `json:"pity_count_s"`
 }
 
-func drawOnce(tx *gorm.DB, user *User) (*DrawResult, error) {
-	cfg := GlobalConfigAtomic.Load()
+func drawOnce(tx *gorm.DB, user *model.User) (*DrawResult, error) {
+	cfg := model.GlobalConfigAtomic.Load()
 	user.PitySCount++
 	user.PityACount++
 	currentRateS := cfg.BaseRateS
@@ -41,14 +44,14 @@ func drawOnce(tx *gorm.DB, user *User) (*DrawResult, error) {
 	} else {
 		hitRarity = "B"
 	}
-	var pickedChar Character
+	var pickedChar model.Character
 	if hitRarity == "S" {
-		var poolSChars []Character
+		var poolSChars []model.Character
 		if err := tx.Where("rarity = ? AND is_in_pool = ?", "S", true).Find(&poolSChars).Error; err != nil || len(poolSChars) == 0 {
 			return nil, errors.New("no S currently")
 		}
-		var upChar *Character
-		var otherChars []Character
+		var upChar *model.Character
+		var otherChars []model.Character
 		for i := range poolSChars {
 			if poolSChars[i].IsUp {
 				upChar = &poolSChars[i]
@@ -69,7 +72,7 @@ func drawOnce(tx *gorm.DB, user *User) (*DrawResult, error) {
 		}
 
 	} else {
-		var poolChars []Character
+		var poolChars []model.Character
 		if err := tx.Where("rarity = ? AND is_in_pool = ?", hitRarity, true).Find(&poolChars).Error; err != nil || len(poolChars) == 0 {
 			return nil, errors.New("卡池中暂无 " + hitRarity + " 档角色，请联系管理员补充")
 		}
@@ -86,13 +89,13 @@ func drawOnce(tx *gorm.DB, user *User) (*DrawResult, error) {
 	} else if hitRarity == "A" {
 		user.PityACount = 0
 	}
-	var userChar UserCharacter
+	var userChar model.UserCharacter
 	isFirstTime := false
 
 	err := tx.Where("user_id = ? AND character_id = ?", user.ID, pickedChar.ID).First(&userChar).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		isFirstTime = true
-		userChar = UserCharacter{
+		userChar = model.UserCharacter{
 			UserID:      user.ID,
 			CharacterID: pickedChar.ID,
 			Rank:        0,
@@ -109,7 +112,7 @@ func drawOnce(tx *gorm.DB, user *User) (*DrawResult, error) {
 		return nil, err
 	}
 
-	record := GachaRecord{
+	record := model.GachaRecord{
 		UserID:        user.ID,
 		CharacterID:   pickedChar.ID,
 		CharacterName: pickedChar.Name,
@@ -147,8 +150,8 @@ func DrawHandler(c *gin.Context) {
 	defer drawMutex.Unlock()
 
 	var results []DrawResult
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		var user User
+	err := database.DB.Transaction(func(tx *gorm.DB) error {
+		var user model.User
 		if err := tx.Where("id = ?", userID).First(&user).Error; err != nil {
 			return err
 		}
@@ -176,11 +179,12 @@ func DrawHandler(c *gin.Context) {
 		"results": results,
 	})
 }
+
 func GetUserInventoryHandler(c *gin.Context) {
 	userID, _ := c.Get("userID")
 
-	var characters []UserCharacter
-	if err := DB.Preload("Character").Where("user_id = ?", userID).Find(&characters).Error; err != nil {
+	var characters []model.UserCharacter
+	if err := database.DB.Preload("Character").Where("user_id = ?", userID).Find(&characters).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询背包失败"})
 		return
 	}
@@ -190,6 +194,7 @@ func GetUserInventoryHandler(c *gin.Context) {
 		"data":  characters,
 	})
 }
+
 func GetGachaHistoryHandler(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -204,11 +209,11 @@ func GetGachaHistoryHandler(c *gin.Context) {
 	}
 	offset := (page - 1) * pageSize
 
-	var records []GachaRecord
+	var records []model.GachaRecord
 	var total int64
 
-	DB.Model(&GachaRecord{}).Where("user_id = ?", userID).Count(&total)
-	DB.Where("user_id = ?", userID).
+	database.DB.Model(&model.GachaRecord{}).Where("user_id = ?", userID).Count(&total)
+	database.DB.Where("user_id = ?", userID).
 		Order("created_at DESC").
 		Offset(offset).
 		Limit(pageSize).
@@ -232,10 +237,10 @@ type SStatItem struct {
 
 func GetGachaStatsHandler(c *gin.Context) {
 	userID, _ := c.Get("userID")
-	var sRecords []GachaRecord
-	DB.Where("user_id = ? AND rarity = ?", userID, "S").Order("created_at ASC").Find(&sRecords)
+	var sRecords []model.GachaRecord
+	database.DB.Where("user_id = ? AND rarity = ?", userID, "S").Order("created_at ASC").Find(&sRecords)
 
-	charMap := make(map[uint]Character)
+	charMap := make(map[uint]model.Character)
 	if len(sRecords) > 0 {
 		var charIDs []uint
 		seen := make(map[uint]bool)
@@ -246,8 +251,8 @@ func GetGachaStatsHandler(c *gin.Context) {
 			}
 		}
 		if len(charIDs) > 0 {
-			var chars []Character
-			DB.Where("id IN ?", charIDs).Find(&chars)
+			var chars []model.Character
+			database.DB.Where("id IN ?", charIDs).Find(&chars)
 			for _, ch := range chars {
 				charMap[ch.ID] = ch
 			}
@@ -277,16 +282,17 @@ func GetGachaStatsHandler(c *gin.Context) {
 		"history":       stats,
 	})
 }
+
 func ClearHistoryHandler(c *gin.Context) {
 	userID, _ := c.Get("userID")
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("user_id = ?", userID).Delete(&GachaRecord{}).Error; err != nil {
+	err := database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ?", userID).Delete(&model.GachaRecord{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("user_id = ?", userID).Delete(&UserCharacter{}).Error; err != nil {
+		if err := tx.Where("user_id = ?", userID).Delete(&model.UserCharacter{}).Error; err != nil {
 			return err
 		}
-		return tx.Model(&User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+		return tx.Model(&model.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
 			"pity_s_count": 0,
 			"pity_a_count": 0,
 		}).Error

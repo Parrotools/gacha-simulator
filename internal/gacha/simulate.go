@@ -1,9 +1,11 @@
-package main
+package gacha
 
 import (
 	"math"
 	"math/rand"
 	"net/http"
+
+	"gacha-simulator/internal/model"
 
 	"github.com/gin-gonic/gin"
 )
@@ -13,19 +15,19 @@ type SimulateReq struct {
 }
 
 type SimulateResp struct {
-	TotalPulls     int        `json:"total_pulls"`
-	SCount         int        `json:"s_count"`
-	ACount         int        `json:"a_count"`
-	BCount         int        `json:"b_count"`
-	UpCount        int        `json:"up_count"`
-	NonUpCount     int        `json:"non_up_count"`
-	EmpiricalSRate float64    `json:"empirical_s_rate"`
-	EmpiricalARate float64    `json:"empirical_a_rate"`
-	AvgPullsPerS   float64    `json:"avg_pulls_per_s"`
-	UpRate         float64    `json:"up_rate"`
-	LuckScore      int        `json:"luck_score"`
-	LuckLevel      string     `json:"luck_level"`
-	CfgSnapshot    PoolConfig `json:"cfg_snapshot"`
+	TotalPulls     int              `json:"total_pulls"`
+	SCount         int              `json:"s_count"`
+	ACount         int              `json:"a_count"`
+	BCount         int              `json:"b_count"`
+	UpCount        int              `json:"up_count"`
+	NonUpCount     int              `json:"non_up_count"`
+	EmpiricalSRate float64          `json:"empirical_s_rate"`
+	EmpiricalARate float64          `json:"empirical_a_rate"`
+	AvgPullsPerS   float64          `json:"avg_pulls_per_s"`
+	UpRate         float64          `json:"up_rate"`
+	LuckScore      int              `json:"luck_score"`
+	LuckLevel      string           `json:"luck_level"`
+	CfgSnapshot    model.PoolConfig `json:"cfg_snapshot"`
 }
 
 // SimulateGachaHandler handles POST /api/gacha/simulate
@@ -44,7 +46,7 @@ func SimulateGachaHandler(c *gin.Context) {
 		return
 	}
 
-	cfg := GlobalConfigAtomic.Load()
+	cfg := model.GlobalConfigAtomic.Load()
 	if cfg == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "卡池配置不可用"})
 		return
@@ -58,7 +60,6 @@ func SimulateGachaHandler(c *gin.Context) {
 	bCount := 0
 	upCount := 0
 	nonUpCount := 0
-	sPullIntervals := make([]int, 0)
 
 	for i := 0; i < totalPulls; i++ {
 		simPityS++
@@ -75,7 +76,6 @@ func SimulateGachaHandler(c *gin.Context) {
 		roll := rand.Float64()
 		if roll < currentRateS {
 			sCount++
-			sPullIntervals = append(sPullIntervals, simPityS)
 			simPityS = 0
 			// 50% chance for UP character
 			if rand.Float64() < 0.5 {

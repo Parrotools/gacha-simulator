@@ -1,4 +1,4 @@
-package main
+package grpcservice
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"gacha-simulator/internal/model"
 	proto "gacha-simulator/proto"
 
 	"google.golang.org/grpc"
@@ -57,7 +58,7 @@ func StartGRPCConfigClientWithContext(ctx context.Context, addr string) {
 					break
 				}
 
-				newCfg := PoolConfig{
+				newCfg := model.PoolConfig{
 					BaseRateS:     msg.BaseRateS,
 					BaseRateA:     msg.BaseRateA,
 					BaseRateB:     msg.BaseRateB,
@@ -67,7 +68,7 @@ func StartGRPCConfigClientWithContext(ctx context.Context, addr string) {
 					HardPityA:     int(msg.HardPityA),
 					MaxLimitedS:   int(msg.MaxLimitedS),
 				}
-				GlobalConfigAtomic.Store(&newCfg)
+				model.GlobalConfigAtomic.Store(&newCfg)
 				log.Printf("[GameServer] Hot-reloaded pool config via gRPC stream: S rate=%.4f, HardPityS=%d", newCfg.BaseRateS, newCfg.HardPityS)
 			}
 
