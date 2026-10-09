@@ -4,3 +4,4 @@
 API.md
 devlog.md
 *.pem
+/tests/
