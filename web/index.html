@@ -769,8 +769,8 @@
       box-shadow: 0 20px 40px rgba(0,0,0,0.6);
     }
 
-    /* Astral Divination & Sim Modals */
-    #divination-modal, #sim-modal {
+    /* Monte Carlo Sim Modal */
+    #sim-modal {
       display: none;
       position: fixed;
       inset: 0;
@@ -781,7 +781,7 @@
       justify-content: center;
     }
 
-    #divination-modal.active, #sim-modal.active {
+    #sim-modal.active {
       display: flex;
     }
 
@@ -819,9 +819,6 @@
         <span class="sse-dot" id="sse-dot"></span>
         <span id="sse-label">实时连接中...</span>
       </div>
-      <button class="btn-divination" id="btn-divination" onclick="handleDivinationClick()" style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(56, 189, 248, 0.2)); border: 1px solid var(--border-gold); color: var(--gold-light); border-radius: 9999px; padding: 0.35rem 0.9rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; transition: all 0.25s;">
-        ✨ 每日星占
-      </button>
       <div class="user-pill" id="user-display">
         <span>游客 (未登录)</span>
       </div>
@@ -1183,30 +1180,6 @@
         <button class="btn-action btn-secondary" style="width: auto; padding: 0.6rem 1.5rem; margin-top: 0;" onclick="closeConfirmModal()">取消</button>
         <button class="btn-action btn-danger" style="width: auto; padding: 0.6rem 1.5rem; margin-top: 0;" id="confirm-modal-ok-btn">确认清空</button>
       </div>
-    </div>
-  </div>
-
-  <!-- Daily Divination Modal -->
-  <div id="divination-modal">
-    <div class="astral-modal-card">
-      <div style="font-size: 0.75rem; letter-spacing: 0.15em; color: var(--astral-cyan); font-weight: 700; margin-bottom: 0.5rem;">
-        ✦ ASTRAL DAILY DIVINATION ✦
-      </div>
-      <h2 id="divination-sign" style="font-size: 1.6rem; color: var(--gold-light); margin-bottom: 0.75rem; text-shadow: 0 0 16px var(--gold-glow);">
-        大吉 · 星神注视
-      </h2>
-      <div id="divination-status-tag" style="display: inline-block; padding: 0.2rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; background: rgba(56, 189, 248, 0.15); border: 1px solid var(--border-cyan); color: var(--astral-cyan); margin-bottom: 1.25rem;">
-        今日初次占卜
-      </div>
-      <p id="divination-desc" style="font-size: 0.92rem; color: #cbd5e1; line-height: 1.6; margin-bottom: 1.5rem; background: rgba(15, 23, 42, 0.6); padding: 1rem; border-radius: 10px; border: 1px solid var(--border-glass);">
-        星海泛起璀璨回音，今日十连必有金光闪烁！
-      </p>
-      <div id="divination-reward" style="font-size: 1.05rem; font-weight: 700; color: #34d399; margin-bottom: 1.5rem; text-shadow: 0 0 10px rgba(52, 211, 153, 0.3);">
-        ✨ 获得星穹赠礼：+160 星琼
-      </div>
-      <button class="btn-action btn-gold" style="width: auto; padding: 0.6rem 2rem; margin: 0 auto;" onclick="closeDivinationModal()">
-        领悟神谕
-      </button>
     </div>
   </div>
 
@@ -2032,35 +2005,6 @@
       } else {
         showToast("加载失败", data.error || "未知异常", "error");
       }
-    }
-
-    // Astral Divination functions
-    async function handleDivinationClick() {
-      if (!authToken) {
-        return showToast("未登录", "请先登录或注册账号以开启每日星占！", "error");
-      }
-      const { status, data } = await apiRequest("/api/user/divination", "POST", {});
-      if (status !== 200) {
-        return showToast("星占失败", data.error || "未知异常", "error");
-      }
-      
-      const rec = data.data;
-      if (!rec) return;
-
-      document.getElementById("divination-sign").textContent = rec.sign || "大吉·星神注视";
-      document.getElementById("divination-status-tag").textContent = data.already_drawn ? "今日已签" : "今日初次占卜";
-      document.getElementById("divination-desc").textContent = rec.description || "星海泛起璀璨回音...";
-      document.getElementById("divination-reward").textContent = `✨ 获得星穹赠礼：+${rec.reward_amount} 星琼 (Stellar Jade)`;
-      
-      const modal = document.getElementById("divination-modal");
-      if (modal) modal.classList.add("active");
-
-      showToast("✦ 今日星占", `${rec.sign} (+${rec.reward_amount} 星琼) - ${rec.description}`, "success");
-    }
-
-    function closeDivinationModal() {
-      const modal = document.getElementById("divination-modal");
-      if (modal) modal.classList.remove("active");
     }
 
     // Monte Carlo Simulator functions
